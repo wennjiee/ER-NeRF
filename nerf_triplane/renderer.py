@@ -65,7 +65,7 @@ class NeRFRenderer(nn.Module):
         super().__init__()
 
         self.opt = opt
-        self.bound = opt.bound
+        self.bound = opt.bound # assume the scene is bounded in box[-bound, bound]^3, if > 1, will invoke adaptive ray marching.
         self.cascade = 1 + math.ceil(math.log2(opt.bound))
         self.grid_size = 128
         self.density_scale = 1
@@ -185,6 +185,7 @@ class NeRFRenderer(nn.Module):
         fars = fars.detach()
 
         # encode audio
+        # enc_a = self.transformer_encoder(auds)
         enc_a = self.encode_audio(auds) # [1, 64]
 
         if enc_a is not None and self.smooth_lips:
@@ -196,7 +197,7 @@ class NeRFRenderer(nn.Module):
         
         if self.individual_dim > 0:
             if self.training:
-                ind_code = self.individual_codes[index]
+                ind_code = self.individual_codes[index] # nn.Para 10000*4
             # use a fixed ind code for the unknown test data.
             else:
                 ind_code = self.individual_codes[0]
@@ -208,7 +209,7 @@ class NeRFRenderer(nn.Module):
             counter = self.step_counter[self.local_step % 16]
             counter.zero_() # set to 0
             self.local_step += 1
-
+            # xyzs采样点的坐标，dirs采样点方向，deltas采样点步长、路径，rays射线id
             xyzs, dirs, deltas, rays = raymarching.march_rays_train(rays_o, rays_d, self.bound, self.density_bitfield, self.cascade, self.grid_size, nears, fars, counter, self.mean_count, perturb, 128, force_all_rays, dt_gamma, max_steps)
             sigmas, rgbs, amb_aud, amb_eye, uncertainty = self(xyzs, dirs, enc_a, ind_code, eye)
             sigmas = self.density_scale * sigmas
@@ -297,15 +298,15 @@ class NeRFRenderer(nn.Module):
         # index: [B]
         # return: image: [B, N, 3], depth: [B, N]
 
-        rays_o = rays_o.contiguous().view(-1, 3)
-        bg_coords = bg_coords.contiguous().view(-1, 2)
+        rays_o = rays_o.contiguous().view(-1, 3) # 65536*3 相机射线
+        bg_coords = bg_coords.contiguous().view(-1, 2) # 65536*2 像素坐标
 
         N = rays_o.shape[0] # N = B * N, in fact
         device = rays_o.device
 
         results = {}
 
-        # background
+        # background bg_color=1*65536*3
         if bg_color is None:
             bg_color = 1
 
@@ -314,14 +315,14 @@ class NeRFRenderer(nn.Module):
             # torso ind code
             if self.individual_dim_torso > 0:
                 if self.training:
-                    ind_code_torso = self.individual_codes_torso[index]
+                    ind_code_torso = self.individual_codes_torso[index] # self.individual_codes_torso = nn.Parameter = 10000*8
                 # use a fixed ind code for the unknown test data.
                 else:
                     ind_code_torso = self.individual_codes_torso[0]
             else:
                 ind_code_torso = None
             
-            # 2D density grid for acceleration...
+            # 2D density grid for acceleration... grid_sample提供一批用于在输入特征图上进行元素采样的位置坐标。grid的元素值通常在[-1,1]之间，(-1,-1) 表示取输入特征图左上角的元素，(1,1) 表示取输入特征图右下角的元素。
             density_thresh_torso = min(self.density_thresh_torso, self.mean_density_torso)
             occupancy = F.grid_sample(self.density_grid_torso.view(1, 1, self.grid_size, self.grid_size), bg_coords.view(1, -1, 1, 2), align_corners=True).view(-1)
             mask = occupancy > density_thresh_torso
@@ -331,16 +332,17 @@ class NeRFRenderer(nn.Module):
             torso_color = torch.zeros([N, 3], device=device)
 
             if mask.any():
+                # def forward_torso(self, x, poses, c=None):, return alpha, color, dx
                 torso_alpha_mask, torso_color_mask, deform = self.forward_torso(bg_coords[mask], poses, ind_code_torso)
-
-                torso_alpha[mask] = torso_alpha_mask.float()
+                
+                torso_alpha[mask] = torso_alpha_mask.float() # 对torso_alpha中，mask=true位置的值用torso_alpha_mask替换
                 torso_color[mask] = torso_color_mask.float()
 
                 results['deform'] = deform
             
             # first mix torso with background
             
-            bg_color = torso_color * torso_alpha + bg_color * (1 - torso_alpha)
+            bg_color = torso_color * torso_alpha + bg_color * (1 - torso_alpha) # c = torso*alpha + bg*(1-alpha), mix torso and background
 
             results['torso_alpha'] = torso_alpha
             results['torso_color'] = bg_color
@@ -429,6 +431,7 @@ class NeRFRenderer(nn.Module):
         auds = get_audio_features(self.aud_features, self.att, rand_idx).to(self.density_bitfield.device)
 
         # encode audio
+        # enc_a = self.transformer_encoder(auds)
         enc_a = self.encode_audio(auds)
 
         ### update density grid
@@ -494,7 +497,7 @@ class NeRFRenderer(nn.Module):
             pose = self.poses[[rand_idx]].to(self.density_bitfield.device)
 
             if self.opt.ind_dim_torso > 0:
-                ind_code = self.individual_codes_torso[[rand_idx]]
+                ind_code = self.individual_codes_torso[[rand_idx]] # nn.Parameter 10000*8
             else:
                 ind_code = None
 
@@ -551,6 +554,7 @@ class NeRFRenderer(nn.Module):
         auds = get_audio_features(self.aud_features, self.att, rand_idx).to(self.density_bitfield.device)
 
         # encode audio
+        # enc_a = self.transformer_encoder(auds)
         enc_a = self.encode_audio(auds)
         tmp_grid = torch.zeros_like(self.density_grid)
 
@@ -608,6 +612,7 @@ class NeRFRenderer(nn.Module):
         auds = get_audio_features(self.aud_features, self.att, rand_idx).to(self.density_bitfield.device)
 
         # encode audio
+        # enc_a = self.transformer_encoder(auds)
         enc_a = self.encode_audio(auds)
         tmp_grid = torch.zeros_like(self.density_grid)
 

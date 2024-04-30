@@ -1,10 +1,150 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import math
 from encoding import get_encoder
 from .renderer import NeRFRenderer
+import numpy as np
 
+class TransformerEncoder(nn.Module):
+    def __init__(self, d_model, d_k, d_v, n_heads):
+        super().__init__()
+        self.pos_emb = PositionalEncoding(d_model)
+        self.encode_layer = EncoderLayer(d_model, d_k, d_v, n_heads)
+        self.ff_n = nn.Linear(d_model, 32)
+
+    def forward(self, enc_inputs):
+        batch_size = 1
+        len = enc_inputs.shape[0]
+        enc_inputs = enc_inputs.unsqueeze(0).view(batch_size, len, -1)
+        ## 位置编码
+        # enc_inputs = self.pos_emb(enc_inputs.transpose(0, 1)).transpose(0, 1)
+        enc_outputs = self.encode_layer(enc_inputs)
+        enc_outputs = torch.sum(enc_outputs, dim=1)
+        enc_outputs = self.ff_n(enc_outputs)
+        return enc_outputs
+
+
+class EncoderLayer(nn.Module):
+    def __init__(self, d_model, d_k, d_v, n_heads):
+        super(EncoderLayer, self).__init__()
+        self.enc_self_attn = MultiHeadAttention(d_model, d_k, d_v, n_heads)
+        self.pos_ffn = PoswiseFeedForwardNet(d_model, d_ff=32)
+
+    def forward(self, enc_inputs):
+        ## 下面这个就是做自注意力层，输入是enc_inputs，形状是[batch_size x seq_len_q x d_model] 需要注意的是最初始的QKV矩阵是等同于这个输入的，去看一下enc_self_attn函数 6.
+        enc_outputs = self.enc_self_attn(enc_inputs, enc_inputs, enc_inputs) # enc_inputs to same Q,K,V
+        # enc_outputs = self.pos_ffn(enc_outputs) # enc_outputs: [batch_size x len_q x d_model]
+        return enc_outputs
+
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self, d_model, d_k, d_v, n_heads):
+        super(MultiHeadAttention, self).__init__()
+        self.d_model = d_model
+        self.d_k = d_k
+        self.d_v = d_v
+        self.n_heads = n_heads
+        self.W_Q = nn.Linear(self.d_model, self.d_k * self.n_heads)
+        self.W_K = nn.Linear(self.d_model, self.d_k * self.n_heads)
+        self.W_V = nn.Linear(self.d_model, self.d_v * self.n_heads)
+        self.linear = nn.Linear(self.n_heads * self.d_v, self.d_model)
+        self.layer_norm = nn.LayerNorm(self.d_model)
+
+    def forward(self, Q, K, V):
+
+        ## 首先映射分头，然后计算atten_scores，然后计算atten_value;
+        ## 输入进来的数据形状： Q: [batch_size x len_q x d_model], K: [batch_size x len_k x d_model], V: [batch_size x len_k x d_model]
+        residual, batch_size = Q, Q.size(0)
+        # (B, S, D) -proj-> (B, S, D) -split-> (B, S, H, W) -trans-> (B, H, S, W)
+
+        ## 先映射，后分头；注意的是q和k分头之后维度是一致，这里都是dk
+        q_s = self.W_Q(Q).view(batch_size, -1, self.n_heads, self.d_k).transpose(1,2)  # q_s: [batch_size x n_heads x len_q x d_k]
+        k_s = self.W_K(K).view(batch_size, -1, self.n_heads, self.d_k).transpose(1,2)  # k_s: [batch_size x n_heads x len_k x d_k]
+        v_s = self.W_V(V).view(batch_size, -1, self.n_heads, self.d_v).transpose(1,2)  # v_s: [batch_size x n_heads x len_k x d_v]
+
+        scores = torch.matmul(q_s, k_s.transpose(-1, -2)) / np.sqrt(self.d_k) # [batch_size x n_heads x len_q x len_k]
+        attn = nn.Softmax(dim=-1)(scores) # 对应方向softmax后，此方向sum = 1
+        context = torch.matmul(attn, v_s) # [batch_size x n_heads x len_q x d_v]
+        context = context.transpose(1, 2).contiguous().view(batch_size, -1, self.n_heads * self.d_v) # context: [batch_size x len_q x n_heads * d_v]
+        return context
+        # output = self.linear(context)
+        # return self.layer_norm(output + residual), attn # output: [batch_size x len_q x d_model]
+
+
+class PoswiseFeedForwardNet(nn.Module):
+    def __init__(self, d_model, d_ff):
+        super(PoswiseFeedForwardNet, self).__init__()
+        self.conv1 = nn.Conv1d(in_channels=d_model, out_channels=d_ff, kernel_size=1)
+        self.conv2 = nn.Conv1d(in_channels=d_ff, out_channels=d_model, kernel_size=1)
+        self.layer_norm = nn.LayerNorm(d_model)
+
+    def forward(self, inputs):
+        residual = inputs # inputs : [batch_size, len_q, d_model]
+        output = nn.ReLU()(self.conv1(inputs.transpose(1, 2)))
+        output = self.conv2(output).transpose(1, 2)
+        return self.layer_norm(output + residual)
+
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, dropout=0.1, max_len=50):
+        super(PositionalEncoding, self).__init__()
+        
+        self.dropout = nn.Dropout(p=dropout)
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term) ## 这里需要注意的是pe[:, 0::2]这个用法，就是从0开始到最后面，补长为2，其实代表的就是偶数位置
+        pe[:, 1::2] = torch.cos(position * div_term) ## 这里需要注意的是pe[:, 1::2]这个用法，就是从1开始到最后面，补长为2，其实代表的就是奇数位置
+
+        ## pe形状是：[max_len*d_model] ---- [max_len*1*d_model]
+        pe = pe.unsqueeze(0).transpose(0, 1)
+        self.register_buffer('pe', pe)  ## 定缓冲区，简单理解为这个参数不更新
+
+    def forward(self, x):
+        """
+        x: [seq_len, batch_size, d_model]
+        """
+        x = x + self.pe[:x.size(0), :] # self.pe[:5, :]
+        return self.dropout(x)
+
+
+class ConditionalLayerNorm(nn.Module):
+    def __init__(self, hidden_size, eps=1e-6):
+        super(ConditionalLayerNorm, self).__init__()
+        self.eps = eps
+        self.gamma_dense = nn.Linear(hidden_size, hidden_size, bias=False)
+        self.beta_dense = nn.Linear(hidden_size, hidden_size, bias=False)
+        self.gamma = nn.Parameter(torch.ones(hidden_size))
+        self.beta = nn.Parameter(torch.zeros(hidden_size))
+
+        nn.init.zeros_(self.gamma_dense.weight)
+        nn.init.zeros_(self.beta_dense.weight)
+
+    # 利用CLN来将外部条件融入到预训练模型中，其直接应用是条件文本生成
+    # 在Bert等Transformer模型中，主要的Normalization方法是Layer Normalization，
+    # 自然想到将对应的 β 和 γ 变成输入条件的函数，来控制 Transformer 模型的生成行为，
+
+    def forward(self, x, condition):
+        '''
+        self.ConditionIntegrator(x=text_emb, condition=query_emb) # hi c
+        :param x: [b, t, e]
+        :param condition: [b, e]
+        :return:
+        '''
+        mean = x.mean(-1, keepdim=True)  # b*t*1
+        std = x.std(-1, keepdim=True)  # b*t*1
+
+        # gain nn.Linear(in_features=768,out=768,bias=false) + nn.Parameter(torch.ones(hidden_size))
+        gamma = self.gamma_dense(condition) + self.gamma  
+        
+        # bias nn.Linear(in_features=768,out=768,bias=false) + nn.Parameter(torch.zeros(hidden_size))    
+        beta = self.beta_dense(condition) + self.beta  
+            
+        x = gamma * (x - mean) / (std + self.eps) + beta
+        return x
+
+ 
 # Audio feature extractor
 class AudioAttNet(nn.Module):
     def __init__(self, dim_aud=64, seq_len=8):
@@ -129,7 +269,8 @@ class NeRFNetwork(NeRFRenderer):
         self.encoder_xz, self.in_dim_xz = get_encoder('hashgrid', input_dim=2, num_levels=self.num_levels, level_dim=self.level_dim, base_resolution=64, log2_hashmap_size=14, desired_resolution=512 * self.bound)
 
         self.in_dim = self.in_dim_xy + self.in_dim_yz + self.in_dim_xz
-
+        # self.transformer_encoder = TransformerEncoder(d_model=self.in_dim, d_k=64, d_v=64, n_heads=8)
+        # self.conditional_layer = ConditionalLayerNorm(hidden_size=32)
         ## sigma network
         self.num_layers = 3
         self.hidden_dim = 64
@@ -152,7 +293,7 @@ class NeRFNetwork(NeRFRenderer):
         if self.torso:
             # torso deform network
             self.register_parameter('anchor_points', 
-                                    nn.Parameter(torch.tensor([[0.01, 0.01, 0.1, 1], [-0.1, -0.1, 0.1, 1], [0.1, -0.1, 0.1, 1]])))
+                                    nn.Parameter(torch.tensor([[0.01, 0.01, 0.1, 1], [-0.1, -0.1, 0.1, 1], [0.1, -0.1, 0.1, 1]]))) # 向网络module添加parameter
             self.torso_deform_encoder, self.torso_deform_in_dim = get_encoder('frequency', input_dim=2, multires=8)
             # self.torso_deform_encoder, self.torso_deform_in_dim = get_encoder('tiledgrid', input_dim=2, num_levels=16, level_dim=1, base_resolution=16, log2_hashmap_size=16, desired_resolution=512)
             self.anchor_encoder, self.anchor_in_dim = get_encoder('frequency', input_dim=6, multires=3)
@@ -162,7 +303,7 @@ class NeRFNetwork(NeRFRenderer):
             self.torso_encoder, self.torso_in_dim = get_encoder('tiledgrid', input_dim=2, num_levels=16, level_dim=2, base_resolution=16, log2_hashmap_size=16, desired_resolution=2048)
             self.torso_net = MLP(self.torso_in_dim + self.torso_deform_in_dim + self.anchor_in_dim + self.individual_dim_torso, 4, 32, 3)
 
-
+    # torso_alpha_mask, torso_color_mask, deform = self.forward_torso(x = bg_coords[mask], poses = poses, c = ind_code_torso)
     def forward_torso(self, x, poses, c=None):
         # x: [N, 2] in [-1, 1]
         # head poses: [1, 4, 4]
@@ -172,31 +313,31 @@ class NeRFNetwork(NeRFRenderer):
         x = x * self.opt.torso_shrink
 
         # deformation-based
-        wrapped_anchor = self.anchor_points[None, ...] @ poses.permute(0, 2, 1).inverse()
-        wrapped_anchor = (wrapped_anchor[:, :, :2] / wrapped_anchor[:, :, 3, None] / wrapped_anchor[:, :, 2, None]).view(1, -1)
+        wrapped_anchor = self.anchor_points[None, ...] @ poses.permute(0, 2, 1).inverse() # self.anchor_points=3*4 registered Xkeys , wrapped_anchor=1*3*4
+        wrapped_anchor = (wrapped_anchor[:, :, :2] / wrapped_anchor[:, :, 3, None] / wrapped_anchor[:, :, 2, None]).view(1, -1) # wrapped_anchor=1*6
         # print(wrapped_anchor)
         # enc_pose = self.pose_encoder(poses)
-        enc_anchor = self.anchor_encoder(wrapped_anchor)
-        enc_x = self.torso_deform_encoder(x)
+        enc_anchor = self.anchor_encoder(wrapped_anchor) # anchor_encoder = get_encoder('frequency', input_dim=6, multires=3), enc_anchor=1*42
+        enc_x = self.torso_deform_encoder(x) # torso_deform_encoder = get_encoder('frequency', input_dim=2, multires=8), enc_x=65534*34
 
         if c is not None:
-            h = torch.cat([enc_x, enc_anchor.repeat(x.shape[0], 1), c.repeat(x.shape[0], 1)], dim=-1)
+            h = torch.cat([enc_x, enc_anchor.repeat(x.shape[0], 1), c.repeat(x.shape[0], 1)], dim=-1) # sometime h=65536*84 or = 16384*84
         else:
             h = torch.cat([enc_x, enc_anchor.repeat(x.shape[0], 1)], dim=-1)
 
-        dx = self.torso_deform_net(h)
+        dx = self.torso_deform_net(h) # MLP dx = 65536*2 2D deform?
         
         x = (x + dx).clamp(-1, 1)
 
-        x = self.torso_encoder(x, bound=1)
+        x = self.torso_encoder(x, bound=1) # get_encoder('tiledgrid', input_dim=2, num_levels=16,...
 
         # h = torch.cat([x, h, enc_a.repeat(x.shape[0], 1)], dim=-1)
         h = torch.cat([x, h], dim=-1)
 
-        h = self.torso_net(h)
+        h = self.torso_net(h) # MLP in 116, out 4, contain alpha and color info.
 
-        alpha = torch.sigmoid(h[..., :1])*(1 + 2*0.001) - 0.001
-        color = torch.sigmoid(h[..., 1:])*(1 + 2*0.001) - 0.001
+        alpha = torch.sigmoid(h[..., :1])*(1 + 2*0.001) - 0.001 # 透明度 h*1.002 - 0.001
+        color = torch.sigmoid(h[..., 1:])*(1 + 2*0.001) - 0.001 # rgb    h*1.002 - 0.001
 
         return alpha, color, dx
 
@@ -211,14 +352,14 @@ class NeRFNetwork(NeRFRenderer):
     def encode_x(self, xyz, bound):
         # x: [N, 3], in [-bound, bound]
         N, M = xyz.shape
-        xy, yz, xz = self.split_xyz(xyz)
-        feat_xy = self.encoder_xy(xy, bound=bound)
+        xy, yz, xz = self.split_xyz(xyz) # 340608 * 2
+        feat_xy = self.encoder_xy(xy, bound=bound) # 340608 * 12
         feat_yz = self.encoder_yz(yz, bound=bound)
         feat_xz = self.encoder_xz(xz, bound=bound)
         
-        return torch.cat([feat_xy, feat_yz, feat_xz], dim=-1)
+        return torch.cat([feat_xy, feat_yz, feat_xz], dim=-1) # it's can be found in equation (5) of paper
     
-
+    # input: 8*1024*2, output: 1*32
     def encode_audio(self, a):
         # a: [1, 29, 16] or [8, 29, 16], audio features from deepspeech
         # if emb, a should be: [1, 16] or [8, 16]
@@ -283,7 +424,9 @@ class NeRFNetwork(NeRFRenderer):
             enc_x = self.encode_x(x, bound=self.bound)
 
         enc_a = enc_a.repeat(enc_x.shape[0], 1)
+        # aud_ch_att = self.transformer_encoder(enc_x)
         aud_ch_att = self.aud_ch_att_net(enc_x)
+        # enc_w = self.conditional_layer(aud_ch_att, enc_a)
         enc_w = enc_a * aud_ch_att
 
         if e is not None:

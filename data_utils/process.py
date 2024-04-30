@@ -19,6 +19,9 @@ def extract_audio_features(path, mode='wav2vec'):
     print(f'[INFO] ===== extract audio labels for {path} =====')
     if mode == 'wav2vec':
         cmd = f'python nerf/asr.py --wav {path} --save_feats'
+    elif mode == 'hubert':
+        # save to data/<name>_hu.npy
+        cmd = f'python data_utils/hubert.py --wav {path}'
     else: # deepspeech
         cmd = f'python data_utils/deepspeech_features/extract_ds_features.py --input {path}'
     os.system(cmd)
@@ -80,6 +83,7 @@ def extract_background(base_dir, ori_imgs_dir):
     all_xys = np.mgrid[0:h, 0:w].reshape(2, -1).transpose()
     distss = []
     for image_path in tqdm.tqdm(image_paths):
+        # parse_img = cv2.imread(image_path.replace('ori_imgs', 'parsing'))
         parse_img = cv2.imread(image_path.replace('ori_imgs', 'parsing').replace('.jpg', '.png'))
         bg = (parse_img[..., 0] == 255) & (parse_img[..., 1] == 255) & (parse_img[..., 2] == 255)
         fg_xys = np.stack(np.nonzero(~bg)).transpose(1, 0)
@@ -253,7 +257,8 @@ def face_tracking(ori_imgs_dir):
     h, w = tmp_image.shape[:2]
 
     cmd = f'python data_utils/face_tracking/face_tracker.py --path={ori_imgs_dir} --img_h={h} --img_w={w} --frame_num={len(image_paths)}'
-
+    # print(cmd)
+    # return
     os.system(cmd)
 
     print(f'[INFO] ===== finished face tracking =====')
@@ -349,7 +354,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('path', type=str, help="path to video file")
     parser.add_argument('--task', type=int, default=-1, help="-1 means all")
-    parser.add_argument('--asr', type=str, default='deepspeech', help="wav2vec or deepspeech")
+    parser.add_argument('--asr', type=str, default='hubert', help="wav2vec or deepspeech")
 
     opt = parser.parse_args()
 
@@ -366,7 +371,7 @@ if __name__ == '__main__':
     os.makedirs(gt_imgs_dir, exist_ok=True)
     os.makedirs(torso_imgs_dir, exist_ok=True)
 
-
+    # python data_utils/process.py data/kanghui/kanghui.mp4 --task 1
     # extract audio
     if opt.task == -1 or opt.task == 1:
         extract_audio(opt.path, wav_path)
@@ -378,8 +383,9 @@ if __name__ == '__main__':
     # extract images
     if opt.task == -1 or opt.task == 3:
         extract_images(opt.path, ori_imgs_dir)
-
-    # face parsing
+    
+    # todo with segment and track anything
+    # face parsing with 79999_iter.pth
     if opt.task == -1 or opt.task == 4:
         extract_semantics(ori_imgs_dir, parsing_dir)
 
@@ -395,7 +401,7 @@ if __name__ == '__main__':
     if opt.task == -1 or opt.task == 7:
         extract_landmarks(ori_imgs_dir)
 
-    # face tracking
+    # face tracking, this step may occurr many warnings or errors
     if opt.task == -1 or opt.task == 8:
         face_tracking(ori_imgs_dir)
 

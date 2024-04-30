@@ -9,6 +9,7 @@ from data_loader import load_dir
 from facemodel import Face_3DMM
 from util import *
 from render_3dmm import Render_3DMM
+from tqdm import tqdm
 
 
 # torch.autograd.set_detect_anomaly(True)
@@ -150,7 +151,7 @@ for iter in range(1500):
 for param_group in optimizer_frame.param_groups:
     param_group["lr"] = 0.1
 
-for iter in range(2000):
+for iter in tqdm(range(2000)):
     id_para_batch = id_para.expand(num_frames, -1)
     geometry = model_3dmm.get_3dlandmarks(
         id_para_batch, exp_para, euler_angle, trans, focal_length, cxy
@@ -196,7 +197,7 @@ set_requires_grad([sel_light])
 optimizer_tl = torch.optim.Adam([tex_para, sel_light], lr=0.1)
 optimizer_id_frame = torch.optim.Adam([euler_angle, trans, exp_para, id_para], lr=0.01)
 
-for iter in range(71):
+for iter in tqdm(range(71)):
     sel_exp_para, sel_euler, sel_trans = (
         exp_para[sel_ids],
         euler_angle[sel_ids],
@@ -258,7 +259,7 @@ light_para = light_para.detach()
 
 print(f'[INFO] fine frame-wise fitting...')
 
-for i in range(int((num_frames - 1) / batch_size + 1)):
+for i in tqdm(range(int((num_frames - 1) / batch_size + 1))):
 
     if (i + 1) * batch_size > num_frames:
         start_n = num_frames - batch_size
@@ -366,7 +367,7 @@ for i in range(int((num_frames - 1) / batch_size + 1)):
         #         loss_regexp.item(),
         #     )
 
-    print(str(i) + " of " + str(int((num_frames - 1) / batch_size + 1)) + " done")
+    # print(str(i) + " of " + str(int((num_frames - 1) / batch_size + 1)) + " done")
 
     render_proj = sel_imgs.clone()
     render_proj[mask] = render_imgs[mask][..., :3].byte()

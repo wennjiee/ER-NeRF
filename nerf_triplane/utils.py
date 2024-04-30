@@ -238,10 +238,10 @@ def convert_poses(poses):
 
 @torch.cuda.amp.autocast(enabled=False)
 def get_bg_coords(H, W, device):
-    X = torch.arange(H, device=device) / (H - 1) * 2 - 1 # in [-1, 1]
+    X = torch.arange(H, device=device) / (H - 1) * 2 - 1 # in [-1, 1] 注意计算优先级 arange / 449 * 2 - 1
     Y = torch.arange(W, device=device) / (W - 1) * 2 - 1 # in [-1, 1]
-    xs, ys = custom_meshgrid(X, Y)
-    bg_coords = torch.cat([xs.reshape(-1, 1), ys.reshape(-1, 1)], dim=-1).unsqueeze(0) # [1, H*W, 2], in [-1, 1]
+    xs, ys = custom_meshgrid(X, Y) # 生成坐标（xs， ys），xs每一列相同，ys每一行相同 xs，ys = 450*450分别为网格的横坐标，纵坐标
+    bg_coords = torch.cat([xs.reshape(-1, 1), ys.reshape(-1, 1)], dim=-1).unsqueeze(0) # [1, H*W, 2], in [-1, 1] 第一列坐标x，第二列坐标y
     return bg_coords
 
 
@@ -259,7 +259,7 @@ def get_rays(poses, intrinsics, H, W, N=-1, patch_size=1, rect=None):
 
     device = poses.device
     B = poses.shape[0]
-    fx, fy, cx, cy = intrinsics
+    fx, fy, cx, cy = intrinsics # 相机内参
 
     if rect is not None:
         xmin, xmax, ymin, ymax = rect
@@ -304,9 +304,9 @@ def get_rays(poses, intrinsics, H, W, N=-1, patch_size=1, rect=None):
 
         else:
             inds = torch.randint(0, H*W, size=[N], device=device) # may duplicate
-            inds = inds.expand([B, N])
+            inds = inds.expand([B, N]) # 1*65536
 
-        i = torch.gather(i, -1, inds)
+        i = torch.gather(i, -1, inds) # 在i中按照inds索引，维度为-1维
         j = torch.gather(j, -1, inds)
 
 
@@ -317,16 +317,16 @@ def get_rays(poses, intrinsics, H, W, N=-1, patch_size=1, rect=None):
     results['j'] = j
     results['inds'] = inds
 
-    zs = torch.ones_like(i)
-    xs = (i - cx) / fx * zs
+    zs = torch.ones_like(i) # 1*65536
+    xs = (i - cx) / fx * zs # xs、ys相机坐标系，i，j图像坐标系，fx、fy为焦距
     ys = (j - cy) / fy * zs
-    directions = torch.stack((xs, ys, zs), dim=-1)
+    directions = torch.stack((xs, ys, zs), dim=-1) # 1*65536*3 相机坐标系的方向坐标
     directions = directions / torch.norm(directions, dim=-1, keepdim=True)
+    # 相机坐标系与世界坐标系的转换 利用c2w矩阵将相机坐标系的方向转化为世界坐标系的方向，得到世界坐标系下的射线方向
+    rays_d = directions @ poses[:, :3, :3].transpose(-1, -2) # (B, N, 3)， pose相机外参 世界坐标系与相机坐标系之间的转换
     
-    rays_d = directions @ poses[:, :3, :3].transpose(-1, -2) # (B, N, 3)
-    
-    rays_o = poses[..., :3, 3] # [B, 3]
-    rays_o = rays_o[..., None, :].expand_as(rays_d) # [B, N, 3]
+    rays_o = poses[..., :3, 3] # [B, 3] 获取世界坐标系下的相机坐标系的原点坐标
+    rays_o = rays_o[..., None, :].expand_as(rays_d) # [B, N, 3] 世界坐标系下的相机坐标系原点位置，即光线原点位置
 
     results['rays_o'] = rays_o
     results['rays_d'] = rays_d
@@ -722,21 +722,24 @@ class Trainer(object):
 
     def train_step(self, data):
 
-        rays_o = data['rays_o'] # [B, N, 3]
-        rays_d = data['rays_d'] # [B, N, 3]
+        rays_o = data['rays_o'] # [B, N, 3] 世界坐标系下射线起点
+        rays_d = data['rays_d'] # [B, N, 3] 世界坐标系下射线方向
         bg_coords = data['bg_coords'] # [1, N, 2]
-        poses = data['poses'] # [B, 6]
-        face_mask = data['face_mask'] # [B, N]
-        eye_mask = data['eye_mask'] # [B, N]
-        lhalf_mask = data['lhalf_mask']
+        poses = data['poses'] # [B, 6] 相机位姿
+
+        face_mask = data['face_mask'] # [B, N] 脸部区域
+        eye_mask = data['eye_mask'] # [B, N] 眼部区域
+        lhalf_mask = data['lhalf_mask'] # lhalf区域
+
         eye = data['eye'] # [B, 1]
-        auds = data['auds'] # [B, 29, 16]
+        auds = data['auds'] # [B, 29, 16] 8*29*16, 8*1024*2
+
         index = data['index'] # [B]
 
         if not self.opt.torso:
-            rgb = data['images'] # [B, N, 3]
+            rgb = data['images'] # [B, N, 3] 1*65536*3 65536个方向观测到的值？训练不包括躯干
         else:
-            rgb = data['bg_torso_color']
+            rgb = data['bg_torso_color'] # 训练包括躯干 rgb = gather采样后的bg_torso_img
     
         B, N, C = rgb.shape
 
@@ -751,7 +754,7 @@ class Trainer(object):
             outputs = self.model.render_torso(rays_o, rays_d, auds, bg_coords, poses, eye=eye, index=index, staged=False, bg_color=bg_color, perturb=True, force_all_rays=False if (self.opt.patch_size <= 1 and not self.opt.train_camera) else True, **vars(self.opt))
 
         if not self.opt.torso:
-            pred_rgb = outputs['image']
+            pred_rgb = outputs['image'] # 从不同射线观察时预测的像素值
         else:
             pred_rgb = outputs['torso_color']
 
@@ -761,10 +764,10 @@ class Trainer(object):
 
         # MSE loss
         loss = self.criterion(pred_rgb, rgb).mean(-1) # [B, N, 3] --> [B, N]
-
+        # !!! if torso then return
         if self.opt.torso:
             loss = loss.mean()
-            loss += ((1 - self.model.anchor_points[:, 3])**2).mean()
+            loss += ((1 - self.model.anchor_points[:, 3])**2).mean() # self.model.anchor_points = [3*4], [:,3]为所有行 第4列
             return  pred_rgb, rgb, loss
 
         # camera optim regularization
@@ -975,7 +978,7 @@ class Trainer(object):
 
         # mark untrained region (i.e., not covered by any camera from the training dataset)
         if self.model.cuda_ray:
-            self.model.mark_untrained_grid(train_loader._data.poses, train_loader._data.intrinsics)
+            self.model.mark_untrained_grid(train_loader._data.poses, train_loader._data.intrinsics) # 5-level loop
 
         for epoch in range(self.epoch + 1, max_epochs + 1):
             self.epoch = epoch
@@ -1018,7 +1021,7 @@ class Trainer(object):
         with torch.no_grad():
 
             for i, data in enumerate(loader):
-                
+                # 自动混合精度的计算
                 with torch.cuda.amp.autocast(enabled=self.fp16):
                     preds, preds_depth = self.test_step(data)                
                 
@@ -1235,7 +1238,7 @@ class Trainer(object):
         self.local_step = 0
 
         for data in loader:
-            # update grid every 16 steps
+            # update grid every 16 steps; torch.cuda.amp.autocast自动混合精度计算
             if self.model.cuda_ray and self.global_step % self.opt.update_extra_interval == 0:
                 with torch.cuda.amp.autocast(enabled=self.fp16):
                     self.model.update_extra_state()
@@ -1246,7 +1249,7 @@ class Trainer(object):
             self.optimizer.zero_grad()
 
             with torch.cuda.amp.autocast(enabled=self.fp16):
-                preds, truths, loss = self.train_step(data)
+                preds, truths, loss = self.train_step(data) # train each data in loader
          
             self.scaler.scale(loss).backward()
             self.scaler.step(self.optimizer)

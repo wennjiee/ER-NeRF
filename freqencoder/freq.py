@@ -20,11 +20,11 @@ class _freq_encoder(Function):
         # RETURN: [B, F], float
 
         if not inputs.is_cuda: inputs = inputs.cuda()
-        inputs = inputs.contiguous()
+        inputs = inputs.contiguous() # 把tensor变成在内存中连续分布的形式
 
         B, input_dim = inputs.shape # batch size, coord dim
         
-        outputs = torch.empty(B, output_dim, dtype=inputs.dtype, device=inputs.device)
+        outputs = torch.empty(B, output_dim, dtype=inputs.dtype, device=inputs.device) # 返回一个包含未初始化数据的张量
 
         _backend.freq_encode_forward(inputs, B, input_dim, degree, output_dim, outputs)
 

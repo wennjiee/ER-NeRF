@@ -137,6 +137,7 @@ class Render_3DMM(nn.Module):
             blur_radius=np.log(1.0 / 1e-4 - 1.0) * sigma / 18.0,
             faces_per_pixel=2,
             perspective_correct=False,
+            # bin_size = 0 # bug fix, but time cost
         )
         blend_params = blending.BlendParams(background_color=[0, 0, 0])
         renderer = MeshRenderer(

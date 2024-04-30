@@ -29,7 +29,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=1e-2, help="initial learning rate")
     parser.add_argument('--lr_net', type=float, default=1e-3, help="initial learning rate")
     parser.add_argument('--ckpt', type=str, default='latest')
-    parser.add_argument('--num_rays', type=int, default=4096 * 16, help="num rays sampled per image for each training step")
+    parser.add_argument('--num_rays', type=int, default=4096 * 16, help="num rays sampled per image for each training step") # maybe based on img_size
     parser.add_argument('--cuda_ray', action='store_true', help="use CUDA raymarching instead of pytorch")
     parser.add_argument('--max_steps', type=int, default=16, help="max num steps sampled per ray (only valid when using --cuda_ray)")
     parser.add_argument('--num_steps', type=int, default=16, help="num steps sampled per ray (only valid when NOT using --cuda_ray)")
@@ -47,7 +47,7 @@ if __name__ == '__main__':
     ### network backbone options
     parser.add_argument('--fp16', action='store_true', help="use amp mixed precision training")
     
-    parser.add_argument('--bg_img', type=str, default='', help="background image")
+    parser.add_argument('--bg_img', type=str, default='', help="background image") # based on img_size
     parser.add_argument('--fbg', action='store_true', help="frame-wise bg")
     parser.add_argument('--exp_eye', action='store_true', help="explicitly control the eyes")
     parser.add_argument('--fix_eye', type=float, default=-1, help="fixed eye area, negative to disable, set to 0-0.3 for a reasonable eye")
@@ -77,8 +77,8 @@ if __name__ == '__main__':
 
     ### GUI options
     parser.add_argument('--gui', action='store_true', help="start a GUI")
-    parser.add_argument('--W', type=int, default=450, help="GUI width")
-    parser.add_argument('--H', type=int, default=450, help="GUI height")
+    parser.add_argument('--W', type=int, default=450, help="GUI width") # maybe based on img_size
+    parser.add_argument('--H', type=int, default=450, help="GUI height") # maybe based on img_size
     parser.add_argument('--radius', type=float, default=3.35, help="default GUI camera radius from center")
     parser.add_argument('--fovy', type=float, default=21.24, help="default GUI camera fovy")
     parser.add_argument('--max_spp', type=int, default=1, help="GUI rendering max sample per pixel")
@@ -89,7 +89,7 @@ if __name__ == '__main__':
     parser.add_argument('--emb', action='store_true', help="use audio class + embedding instead of logits")
 
     parser.add_argument('--ind_dim', type=int, default=4, help="individual code dim, 0 to turn off")
-    parser.add_argument('--ind_num', type=int, default=10000, help="number of individual codes, should be larger than training dataset size")
+    parser.add_argument('--ind_num', type=int, default=10000, help="number of individual codes, should be larger than training dataset size") # based on data
 
     parser.add_argument('--ind_dim_torso', type=int, default=8, help="individual code dim, 0 to turn off")
 
@@ -106,7 +106,7 @@ if __name__ == '__main__':
     parser.add_argument('--asr_wav', type=str, default='', help="load the wav and use as input")
     parser.add_argument('--asr_play', action='store_true', help="play out the audio")
 
-    parser.add_argument('--asr_model', type=str, default='deepspeech')
+    parser.add_argument('--asr_model', type=str, default='hubert') # the most important in crossing-languages
     # parser.add_argument('--asr_model', type=str, default='cpierse/wav2vec2-large-xlsr-53-esperanto')
     # parser.add_argument('--asr_model', type=str, default='facebook/wav2vec2-large-960h-lv60-self')
 
@@ -146,7 +146,7 @@ if __name__ == '__main__':
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    model = NeRFNetwork(opt)
+    model = NeRFNetwork(opt) # class NeRFNetwork(NeRFRenderer) 具有继承关系
 
     # manually load state dict for head
     if opt.torso and opt.head_ckpt != '':
@@ -237,6 +237,7 @@ if __name__ == '__main__':
         with open(os.path.join(opt.workspace, 'opt.txt'), 'a') as f:
             f.write(str(opt))
         if opt.gui:
+            from nerf_triplane.gui import NeRFGUI
             with NeRFGUI(opt, trainer, train_loader) as gui:
                 gui.render()
         
@@ -245,6 +246,7 @@ if __name__ == '__main__':
 
             max_epochs = np.ceil(opt.iters / len(train_loader)).astype(np.int32)
             print(f'[INFO] max_epoch = {max_epochs}')
+
             trainer.train(train_loader, valid_loader, max_epochs)
 
             # free some mem

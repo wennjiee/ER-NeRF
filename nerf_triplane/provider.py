@@ -85,7 +85,7 @@ class NeRFDataset_Test:
     def __init__(self, opt, device, downscale=1):
         super().__init__()
         
-        self.opt = opt
+        self.opt = opt # in Test
         self.device = device
         self.downscale = downscale
         self.scale = opt.scale # camera radius scale to make sure camera are inside the bounding box.
@@ -533,13 +533,13 @@ class NeRFDataset:
             # default bg
             if self.opt.bg_img == '':
                 self.opt.bg_img = os.path.join(self.root_path, 'bc.jpg')
-            bg_img = cv2.imread(self.opt.bg_img, cv2.IMREAD_UNCHANGED) # [H, W, 3]
+            bg_img = cv2.imread(self.opt.bg_img, cv2.IMREAD_UNCHANGED) # [H, W, 3] 原始背景图像
             if bg_img.shape[0] != self.H or bg_img.shape[1] != self.W:
                 bg_img = cv2.resize(bg_img, (self.W, self.H), interpolation=cv2.INTER_AREA)
             bg_img = cv2.cvtColor(bg_img, cv2.COLOR_BGR2RGB)
             bg_img = bg_img.astype(np.float32) / 255 # [H, W, 3/4]
 
-        self.bg_img = bg_img
+        self.bg_img = bg_img # in NeRFDataset NOT in test
 
         self.poses = np.stack(self.poses, axis=0)
 
@@ -653,13 +653,13 @@ class NeRFDataset:
 
         # audio use the original index
         if self.auds is not None:
-            auds = get_audio_features(self.auds, self.opt.att, index[0]).to(self.device)
-            results['auds'] = auds
+            auds = get_audio_features(self.auds, self.opt.att, index[0]).to(self.device) # audio attention mode (0 = turn off, 1 = left-direction, 2 = bi-direction)
+            results['auds'] = auds # get auds based on current data, auds=8*29*16
 
         # head pose and bg image may mirror (replay --> <-- --> <--).
         index[0] = self.mirror_index(index[0])
 
-        poses = self.poses[index].to(self.device) # [B, 4, 4]
+        poses = self.poses[index].to(self.device) # [B, 4, 4], 其中self.poses表示训练集不同图片的相机外参7272*4*4
         
         if self.training and self.opt.finetune_lips:
             rect = self.lips_rect[index[0]]
@@ -696,28 +696,28 @@ class NeRFDataset:
             results['eye'] = None
 
         # load bg
-        bg_torso_img = self.torso_img[index]
+        bg_torso_img = self.torso_img[index] # load torso_img
         if self.preload == 0: # on the fly loading
-            bg_torso_img = cv2.imread(bg_torso_img[0], cv2.IMREAD_UNCHANGED) # [H, W, 4]
-            bg_torso_img = cv2.cvtColor(bg_torso_img, cv2.COLOR_BGRA2RGBA)
+            bg_torso_img = cv2.imread(bg_torso_img[0], cv2.IMREAD_UNCHANGED) # [H, W, 4] 加载包括 alpha 通道的原始图像 Alpha通道的取值范围通常是从0到255，其中0代表完全透明（即该像素完全不可见，255代表该像素完全可见
+            bg_torso_img = cv2.cvtColor(bg_torso_img, cv2.COLOR_BGRA2RGBA) # 颜色空间转换 至 cv2.COLOR_BGRA2RGBA
             bg_torso_img = bg_torso_img.astype(np.float32) / 255 # [H, W, 3/4]
-            bg_torso_img = torch.from_numpy(bg_torso_img).unsqueeze(0)
-        bg_torso_img = bg_torso_img[..., :3] * bg_torso_img[..., 3:] + self.bg_img * (1 - bg_torso_img[..., 3:])
+            bg_torso_img = torch.from_numpy(bg_torso_img).unsqueeze(0) # 1*450*450*4 unsqueeze(0)增加第0维度
+        bg_torso_img = bg_torso_img[..., :3] * bg_torso_img[..., 3:] + self.bg_img * (1 - bg_torso_img[..., 3:])  # combine bg and torso, get bg_torso_img
         bg_torso_img = bg_torso_img.view(B, -1, 3).to(self.device)
 
         if not self.opt.torso:
-            bg_img = bg_torso_img
+            bg_img = bg_torso_img # 不 包括躯干
         else:
-            bg_img = self.bg_img.view(1, -1, 3).repeat(B, 1, 1).to(self.device)
+            bg_img = self.bg_img.view(1, -1, 3).repeat(B, 1, 1).to(self.device) # 包括躯干 repeat函数
 
         if self.training:
             bg_img = torch.gather(bg_img, 1, torch.stack(3 * [rays['inds']], -1)) # [B, N, 3]
 
-        results['bg_color'] = bg_img
+        results['bg_color'] = bg_img # 采样gather后的bg_img
 
         if self.opt.torso and self.training:
             bg_torso_img = torch.gather(bg_torso_img, 1, torch.stack(3 * [rays['inds']], -1)) # [B, N, 3]
-            results['bg_torso_color'] = bg_torso_img
+            results['bg_torso_color'] = bg_torso_img # 采样gather后的bg_torso_img
 
         images = self.images[index] # [B, H, W, 3/4]
         if self.preload == 0:
@@ -725,20 +725,23 @@ class NeRFDataset:
             images = cv2.cvtColor(images, cv2.COLOR_BGR2RGB)
             images = images.astype(np.float32) / 255 # [H, W, 3]
             images = torch.from_numpy(images).unsqueeze(0)
-        images = images.to(self.device)
+        images = images.to(self.device) # ground_true imgs
 
         if self.training:
             C = images.shape[-1]
+            # view中一个参数指定为-1，代表自动调整这个维度上的元素个数，保证元素的总数不变,images.view(B, -1, C) = 1*202500*1
+            # torch.stack(C * [rays['inds']], -1) = 1*65536*3, t[0][0][0] = t[0][0][1/2]
+            # torch.gather(t, dim, index) 以索引index=1*65536*3和维度dim=1在image=1*202500*1上进行收集，形成新的tensor=1*65536*3
             images = torch.gather(images.view(B, -1, C), 1, torch.stack(C * [rays['inds']], -1)) # [B, N, 3/4]
             
-        results['images'] = images
+        results['images'] = images # gather后的gt_imgs
 
         if self.training:
             bg_coords = torch.gather(self.bg_coords, 1, torch.stack(2 * [rays['inds']], -1)) # [1, N, 2]
         else:
             bg_coords = self.bg_coords # [1, N, 2]
 
-        results['bg_coords'] = bg_coords
+        results['bg_coords'] = bg_coords # gather后的像素坐标[x，y]
 
         # results['poses'] = convert_poses(poses) # [B, 6]
         # results['poses_matrix'] = poses # [B, 4, 4]
