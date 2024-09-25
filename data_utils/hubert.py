@@ -82,7 +82,7 @@ args = parser.parse_args()
 wav_name = args.wav
 
 speech, sr = sf.read(wav_name)
-speech_16k = librosa.resample(speech, orig_sr=sr, target_sr=16000)
+speech_16k = librosa.resample(speech, orig_sr=sr, target_sr=16000) # ffmpeg -i LC_Vocals.wav -ar 16000 output.wav
 print("SR: {} to {}".format(sr, 16000))
 # print(speech.shape, speech_16k.shape)
 
