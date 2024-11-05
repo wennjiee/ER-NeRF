@@ -349,6 +349,11 @@ def save_transforms(base_dir, ori_imgs_dir):
 
     print(f'[INFO] ===== finished saving transforms =====')
 
+def extract_aus(base_dir, ori_imgs_dir):
+    print(f'[INFO] ===== extract AUs from {ori_imgs_dir} =====')
+    cmd = f'D:/OpenFace_2.2.0_win_x64/FeatureExtraction -fdir {ori_imgs_dir} -aus -out_dir {base_dir} -of "au.csv"'
+    os.system(cmd)
+    print(f'[INFO] ===== extracted AUs =====')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -383,6 +388,7 @@ if __name__ == '__main__':
     # extract images
     if opt.task == -1 or opt.task == 3:
         extract_images(opt.path, ori_imgs_dir)
+        extract_aus(base_dir, ori_imgs_dir)
     
     # todo with segment and track anything
     # face parsing with 79999_iter.pth
