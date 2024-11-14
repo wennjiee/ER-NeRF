@@ -243,8 +243,8 @@ if __name__ == '__main__':
         
         else:
             valid_loader = NeRFDataset(opt, device=device, type='val', downscale=1).dataloader()
-
-            max_epochs = np.ceil(opt.iters / len(train_loader)).astype(np.int32)
+            # max_epochs = 30
+            max_epochs = min(np.ceil(opt.iters / len(train_loader)).astype(np.int32), 50)
             print(f'[INFO] max_epoch = {max_epochs}')
 
             trainer.train(train_loader, valid_loader, max_epochs)
