@@ -1,53 +1,100 @@
 import os
 import glob
-import tqdm
 import json
 import argparse
 import cv2
 import numpy as np
+import subprocess
+import logging
+
+log_file_path = './logs/default_process.log'
+def setup_logging():
+    global log_file_path
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file_path, mode='a'),
+            logging.StreamHandler()
+        ]
+    )
 
 def extract_audio(path, out_path, sample_rate=16000):
-    
-    print(f'[INFO] ===== extract audio from {path} to {out_path} =====')
-    cmd = f'ffmpeg -i {path} -f wav -ar {sample_rate} {out_path}'
-    os.system(cmd)
-    print(f'[INFO] ===== extracted audio =====')
+    logging.info(f'===== Extract audio from {path} to {out_path} =====')
+    cmd = f'ffmpeg -i "{path}" -f wav -ar {sample_rate} "{out_path}"'
+    try:
+        with open(log_file_path, "a") as log_file:
+            process = subprocess.Popen(cmd, shell=True, stdout=log_file, stderr=log_file, text=True, bufsize=1)
+            process.wait()
+            
+            if process.returncode == 0:
+                logging.info('===== Audio extraction completed successfully =====')
+            else:
+                logging.error(f'Failed to extract audio with return code {process.returncode}')
+    except Exception as e:
+        logging.error(f'Failed to extract audio: {e}')
 
 
 def extract_audio_features(path, mode='wav2vec'):
-
-    print(f'[INFO] ===== extract audio labels for {path} =====')
+    
+    logging.info(f'===== extract audio labels for {path} =====')
     if mode == 'wav2vec':
         cmd = f'python nerf/asr.py --wav {path} --save_feats'
     elif mode == 'hubert':
-        # save to data/<name>_hu.npy
         cmd = f'python data_utils/hubert.py --wav {path}'
-    else: # deepspeech
+    else:  # deepspeech
         cmd = f'python data_utils/deepspeech_features/extract_ds_features.py --input {path}'
-    os.system(cmd)
-    print(f'[INFO] ===== extracted audio labels =====')
-
-
+    try:
+        with open(log_file_path, "a") as log_file:
+            process = subprocess.Popen(cmd, shell=True, stdout=log_file, stderr=log_file, text=True, bufsize=1)
+            process.wait()
+        if process.returncode == 0:
+            logging.info(f' ===== extracted audio labels =====')
+        else:
+            logging.error(f'Failed to extract audio features with return code {process.returncode}')
+    except Exception as e:
+        logging.error(f'Failed to extract audio features: {e}')
 
 def extract_images(path, out_path, fps=25):
-
-    print(f'[INFO] ===== extract images from {path} to {out_path} =====')
-    cmd = f'ffmpeg -i {path} -vf fps={fps} -qmin 1 -q:v 1 -start_number 0 {os.path.join(out_path, "%d.jpg")}'
-    os.system(cmd)
-    print(f'[INFO] ===== extracted images =====')
-
+    logging.info(f'===== Extracting images from {path} to {out_path} =====')
+    cmd = f'ffmpeg -i "{path}" -vf fps={fps} -qmin 1 -q:v 1 -start_number 0 {os.path.join(out_path, "%d.jpg")}'
+    
+    try:
+        with open(log_file_path, "a") as log_file:
+            process = subprocess.Popen(cmd, shell=True, stdout=log_file, stderr=log_file, text=True)
+            process.wait()
+        
+        if process.returncode == 0:
+            logging.info('===== Image extraction completed successfully =====')
+        else:
+            logging.error(f'Failed to extract images with return code {process.returncode}')
+    except Exception as e:
+        logging.error(f'Failed to extract images: {e}')
 
 def extract_semantics(ori_imgs_dir, parsing_dir):
+    logging.info(f'===== Extracting semantics from {ori_imgs_dir} to {parsing_dir} =====')
+    cmd = [
+        'python', 'data_utils/face_parsing/test.py',
+        f'--respath={parsing_dir}', f'--imgpath={ori_imgs_dir}'
+    ]
+    
+    try:
+        with open(log_file_path, "a") as log_file:
+            process = subprocess.Popen(cmd, stdout=log_file, stderr=log_file, text=True)
+            process.wait()
+        
+        if process.returncode == 0:
+            logging.info('===== Successfully extracted semantics =====')
+        else:
+            logging.error(f'Failed to extract semantics with return code {process.returncode}')
+    except Exception as e:
+        logging.error(f'Failed to extract semantics: {e}')
 
-    print(f'[INFO] ===== extract semantics from {ori_imgs_dir} to {parsing_dir} =====')
-    cmd = f'python data_utils/face_parsing/test.py --respath={parsing_dir} --imgpath={ori_imgs_dir}'
-    os.system(cmd)
-    print(f'[INFO] ===== extracted semantics =====')
 
 
 def extract_landmarks(ori_imgs_dir):
 
-    print(f'[INFO] ===== extract face landmarks from {ori_imgs_dir} =====')
+    logging.info(f'===== Extracting face landmarks from {ori_imgs_dir} =====')
 
     import face_alignment
     try:
@@ -55,7 +102,7 @@ def extract_landmarks(ori_imgs_dir):
     except:
         fa = face_alignment.FaceAlignment(face_alignment.LandmarksType.TWO_D, flip_input=False)
     image_paths = glob.glob(os.path.join(ori_imgs_dir, '*.jpg'))
-    for image_path in tqdm.tqdm(image_paths):
+    for image_path in image_paths:
         input = cv2.imread(image_path, cv2.IMREAD_UNCHANGED) # [H, W, 3]
         input = cv2.cvtColor(input, cv2.COLOR_BGR2RGB)
         preds = fa.get_landmarks(input)
@@ -63,13 +110,12 @@ def extract_landmarks(ori_imgs_dir):
             lands = preds[0].reshape(-1, 2)[:,:2]
             np.savetxt(image_path.replace('jpg', 'lms'), lands, '%f')
     del fa
-    print(f'[INFO] ===== extracted face landmarks =====')
+    logging.info(f'===== Extracted face landmarks  =====')
 
 
 def extract_background(base_dir, ori_imgs_dir):
     
-    print(f'[INFO] ===== extract background image from {ori_imgs_dir} =====')
-
+    logging.info(f'===== Extracting background image from {ori_imgs_dir} =====')
     from sklearn.neighbors import NearestNeighbors
 
     image_paths = glob.glob(os.path.join(ori_imgs_dir, '*.jpg'))
@@ -82,7 +128,7 @@ def extract_background(base_dir, ori_imgs_dir):
     # nearest neighbors
     all_xys = np.mgrid[0:h, 0:w].reshape(2, -1).transpose()
     distss = []
-    for image_path in tqdm.tqdm(image_paths):
+    for image_path in image_paths:
         # parse_img = cv2.imread(image_path.replace('ori_imgs', 'parsing'))
         parse_img = cv2.imread(image_path.replace('ori_imgs', 'parsing').replace('.jpg', '.png'))
         bg = (parse_img[..., 0] == 255) & (parse_img[..., 1] == 255) & (parse_img[..., 2] == 255)
@@ -121,13 +167,12 @@ def extract_background(base_dir, ori_imgs_dir):
 
     cv2.imwrite(os.path.join(base_dir, 'bc.jpg'), bc_img)
 
-    print(f'[INFO] ===== extracted background image =====')
+    logging.info(f'===== Extracted background image =====')
 
 
 def extract_torso_and_gt(base_dir, ori_imgs_dir):
 
-    print(f'[INFO] ===== extract torso and gt images for {base_dir} =====')
-
+    logging.info(f'===== Extract torso and gt images for {base_dir} =====')
     from scipy.ndimage import binary_erosion, binary_dilation
 
     # load bg
@@ -135,7 +180,7 @@ def extract_torso_and_gt(base_dir, ori_imgs_dir):
     
     image_paths = glob.glob(os.path.join(ori_imgs_dir, '*.jpg'))
 
-    for image_path in tqdm.tqdm(image_paths):
+    for image_path in image_paths:
         # read ori image
         ori_image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED) # [H, W, 3]
 
@@ -243,29 +288,31 @@ def extract_torso_and_gt(base_dir, ori_imgs_dir):
 
         cv2.imwrite(image_path.replace('ori_imgs', 'torso_imgs').replace('.jpg', '.png'), np.concatenate([torso_image, torso_alpha], axis=-1))
 
-    print(f'[INFO] ===== extracted torso and gt images =====')
+    logging.info(f'===== Extracted torso and gt images =====')
 
 
 def face_tracking(ori_imgs_dir):
-
-    print(f'[INFO] ===== perform face tracking =====')
-
-    image_paths = glob.glob(os.path.join(ori_imgs_dir, '*.jpg'))
-    
-    # read one image to get H/W
-    tmp_image = cv2.imread(image_paths[0], cv2.IMREAD_UNCHANGED) # [H, W, 3]
-    h, w = tmp_image.shape[:2]
-
-    cmd = f'python data_utils/face_tracking/face_tracker.py --path={ori_imgs_dir} --img_h={h} --img_w={w} --frame_num={len(image_paths)}'
-    # print(cmd)
-    # return
-    os.system(cmd)
-
-    print(f'[INFO] ===== finished face tracking =====')
+    logging.info(f'===== Perform face tracking =====')
+    image_paths = glob.glob(os.path.join(ori_imgs_dir, "*.jpg"))
+    h, w = cv2.imread(image_paths[0], cv2.IMREAD_UNCHANGED).shape[:2]
+    frame_count = len(image_paths)
+    cmd = f"python data_utils/face_tracking/face_tracker.py --path={ori_imgs_dir} --img_h={h} --img_w={w} --frame_num={frame_count}"
+    logging.info(f'Running command: {cmd}')
+    # os.system(cmd)
+    try:
+        with open(log_file_path, "a") as log_file:
+            process = subprocess.Popen(cmd, stdout=log_file, stderr=log_file, text=True)
+            process.wait()
+        if process.returncode == 0:
+            logging.info(f' ===== finished face tracking =====')
+        else:
+            logging.error(f' Face tracking failed with return code {process.returncode}')
+    except Exception as e:
+        logging.error(f'[ Error occurred while performing face tracking: {e}')
 
 
 def save_transforms(base_dir, ori_imgs_dir):
-    print(f'[INFO] ===== save transforms =====')
+    logging.info(f' ===== save transforms =====')
 
     import torch
 
@@ -347,19 +394,31 @@ def save_transforms(base_dir, ori_imgs_dir):
         with open(os.path.join(base_dir, 'transforms_' + save_id + '.json'), 'w') as fp:
             json.dump(transform_dict, fp, indent=2, separators=(',', ': '))
 
-    print(f'[INFO] ===== finished saving transforms =====')
+    logging.info(f' ===== finished saving transforms =====')
 
 def extract_aus(base_dir, ori_imgs_dir):
     print(f'[INFO] ===== extract AUs from {ori_imgs_dir} =====')
     cmd = f'D:/OpenFace_2.2.0_win_x64/FeatureExtraction -fdir {ori_imgs_dir} -aus -out_dir {base_dir} -of "au.csv"'
-    os.system(cmd)
-    print(f'[INFO] ===== extracted AUs =====')
+    try:
+        process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+        for line in process.stdout:
+            print(line.strip())
+        for line in process.stderr:
+            print(line.strip())
+        process.wait()
+        if process.returncode == 0:
+            print(f'[INFO] ===== extracted AUs =====')
+        else:
+            print(f'[ERROR] Failed to extract AUs with return code {process.returncode}')
+    except Exception as e:
+        print(f'[ERROR] Failed to extract AUs: {e}')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('path', type=str, help="path to video file")
     parser.add_argument('--task', type=int, default=-1, help="-1 means all")
     parser.add_argument('--asr', type=str, default='hubert', help="wav2vec or deepspeech")
+    parser.add_argument("--log_file", type=str, default='./logs/default.log', help="Path to the log file.")
 
     opt = parser.parse_args()
 
@@ -375,7 +434,8 @@ if __name__ == '__main__':
     os.makedirs(parsing_dir, exist_ok=True)
     os.makedirs(gt_imgs_dir, exist_ok=True)
     os.makedirs(torso_imgs_dir, exist_ok=True)
-
+    log_file_path = opt.log_file
+    setup_logging()
     # python data_utils/process.py data/kanghui/kanghui.mp4 --task 1
     # extract audio
     if opt.task == -1 or opt.task == 1:
