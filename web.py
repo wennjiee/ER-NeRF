@@ -88,7 +88,7 @@ async def infer(
     os.makedirs(log_directory, exist_ok=True)
     log_file_path = get_log_file_path(log_directory, infer_id)
     command = [
-        "python", "./ER-NeRF/scripts/infer.py",
+        "python", "./scripts/infer.py",
         "--digitalHumanName", digitalHumanName,
         "--testAudioName", testAudioName,
         "--inference_part", inference_part,
