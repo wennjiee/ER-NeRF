@@ -5,9 +5,6 @@ import os
 from typing import Dict
 from datetime import datetime
 import sys
-nerf_path = os.path.join(os.getcwd(), 'ER-NeRF')
-print(nerf_path)
-sys.path.append(nerf_path)
 
 app = FastAPI()
 router = APIRouter(prefix="/nerf")
