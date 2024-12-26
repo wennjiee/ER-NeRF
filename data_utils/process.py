@@ -46,7 +46,7 @@ def extract_audio_features(path, mode='wav2vec', log_file_path=log_file_path):
         cmd = f'python ./data_utils/deepspeech_features/extract_ds_features.py --input {path}'
     try:
         with open(log_file_path, "a") as log_file:
-            process = subprocess.Popen(cmd, shell=True, stdout=log_file, stderr=log_file, text=True, bufsize=1)
+            process = subprocess.Popen(cmd, stdout=log_file, stderr=log_file, text=True, bufsize=1)
             process.wait()
         if process.returncode == 0:
             logging.info(f' ===== extracted audio labels =====')
