@@ -23,7 +23,13 @@ def get_log_file_path(log_directory, file_name):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return os.path.join(log_directory, f"{file_name}_{timestamp}.txt")
 
-def run_infer_script(command, log_file_path, results_log_path):
+def run_process():
+    return ""
+
+def run_train():
+    return ""
+
+def run_infer(command, log_file_path, results_log_path):
     try:
         with open(log_file_path, "a") as log_file:
             process = subprocess.Popen(command, stdout=log_file, stderr=log_file, text=True, bufsize=1)
@@ -52,7 +58,7 @@ async def process_data(
     log_file_path = get_log_file_path(f"process_{train_name}")
     command = f"python data_utils/process.py data/{train_name}/{train_name}.mp4 --log_file {log_file_path} --task {task}"
 
-    background_tasks.add_task(run_script, command, "process.py", log_file_path)
+    background_tasks.add_task(run_process, command, "process.py", log_file_path)
     
     return {
         "message": f"Processing started in background for train_name: {train_name}, task: {task}",
@@ -67,7 +73,7 @@ async def train(train_name: str = Query(...), background_tasks: BackgroundTasks 
     log_file_path = get_log_file_path(f"train_{train_name}")
     command = ["python", "./scripts/train.py", train_name, log_file_path]
 
-    background_tasks.add_task(run_script, command, "train.py", log_file_path, train_name)
+    background_tasks.add_task(run_train, command, "train.py", log_file_path, train_name)
     return {"message": f"Training started in background for train_name: {train_name}", "log_file": log_file_path}
 
 @router.get("/infer")
@@ -89,7 +95,7 @@ async def infer(
         "--log_file", log_file_path
     ]
     results_log_path = "./_DEBUG/res/results.txt"
-    background_tasks.add_task(run_infer_script, command, log_file_path, results_log_path)
+    background_tasks.add_task(run_infer, command, log_file_path, results_log_path)
     return {
         "message": f"Inference started in background with digitalHumanName: {digitalHumanName}, testAudioName: {testAudioName}, inference_part: {inference_part}",
         "log_file": log_file_path
