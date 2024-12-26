@@ -1,6 +1,6 @@
 .vscode/
 aoutputs/
-0downloaded/
+_downloaded/
 __pycache__/
 build/
 *.egg-info/
@@ -10,13 +10,13 @@ build/
 *.wav
 tmp*
 trial*/
-
+*.txt
+*.log
+*.yaml
 data/*
 !data/.gitkeep
 data_utils/face_tracking/3DMM/*
 data_utils/face_parsing/79999_iter.pth
-
-
-
+logs
 pretrained
 *.mp4
