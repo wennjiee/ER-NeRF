@@ -17,14 +17,14 @@ def video_add_audio(video_path: str, audio_path: str, output_dir: str, digitalHu
     result = os.path.join(output_dir, '{}.{}'.format(digitalHumanName + '_talk_' + testAudioName, _ext_video))
     ff = FFmpeg(
         inputs={video_path: None, audio_path: None},
-        outputs={result: '-map 0:v -map 1:a -c:v copy -c:a {} -shortest'.format(_codec)})
+        outputs={result: '-y -map 0:v -map 1:a -c:v copy -c:a {} -shortest'.format(_codec)})
     print(ff.cmd)
     ff.run()
     return result
 
 if __name__ == '__main__':
-    digitalHumanName = 'lc_128'
-    testAudioName = 'LC_Vocals_16'
+    digitalHumanName = 'zhouyuzhu'
+    testAudioName = 'synctalk'
     inference_part = 'head'
     checkpoints_paths = sorted(glob.glob(os.path.join(f'trial/{digitalHumanName}_{inference_part}/checkpoints/', '*.pth')), reverse=True)
     ck_path = checkpoints_paths[0].replace('\\', '/')
