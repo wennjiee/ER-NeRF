@@ -19,10 +19,6 @@ def log_infer_status(status, log_file_path):
     with open(log_file_path, "a") as log_file:
         log_file.write(f"{timestamp}|!{status}")
 
-def get_log_file_path(log_directory, file_name):
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return os.path.join(log_directory, f"{file_name}_{timestamp}.txt")
-
 def run_process():
     return ""
 
@@ -45,7 +41,7 @@ def run_infer(command, log_file_path, results_log_path):
             log_file.write(f"Error occurred: {str(e)}\n")
 
 @router.get("/process")
-async def process_data(
+async def process(
     train_name: str = Query(..., description="The name of the training data."),
     task: int = Query(1, description="Task ID to execute, default is 1."),
     background_tasks: BackgroundTasks = None
@@ -86,7 +82,9 @@ async def infer(
     infer_id = f"infer_{digitalHumanName}_talk_{testAudioName}"
     log_directory = './_DEBUG/logs/'
     os.makedirs(log_directory, exist_ok=True)
-    log_file_path = get_log_file_path(log_directory, infer_id)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file_path = os.path.join(log_directory, 'test.txt')
+    # log_file_path = os.path.join(log_directory, f'{infer_id}_{timestamp}.txt')
     command = [
         "python", "./scripts/infer.py",
         "--digitalHumanName", digitalHumanName,
