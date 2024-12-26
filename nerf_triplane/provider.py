@@ -529,7 +529,7 @@ class NeRFDataset:
             bg_img = np.ones((self.H, self.W, 3), dtype=np.float32)
         elif self.opt.bg_img == 'black': # special
             bg_img = np.zeros((self.H, self.W, 3), dtype=np.float32)
-        else: # load from file
+        else: # load from file 
             # default bg
             if self.opt.bg_img == '':
                 self.opt.bg_img = os.path.join(self.root_path, 'bc.jpg')
