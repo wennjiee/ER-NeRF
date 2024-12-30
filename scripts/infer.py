@@ -54,8 +54,9 @@ if __name__ == '__main__':
     parser.add_argument('--testAudioName', default='synctalk', help="Name of the test audio file.")
     parser.add_argument('--inference_part', default='head', help="Part for inference (e.g., 'head').")
     parser.add_argument('--log_file', default=f'', help="Part for inference (e.g., 'head').")
+    parser.add_argument('--shm_name', default=f'')
     args = parser.parse_args()
-
+    shm_name = args.shm_name
     log_file_path = args.log_file
     digitalHumanName = args.digitalHumanName
     testAudioName = args.testAudioName
@@ -74,7 +75,7 @@ if __name__ == '__main__':
     # if not os.path.exists(test_audio.replace('.wav', '_hu.npy')):
     #     process.extract_audio_features(test_audio, mode='hubert', log_file_path=log_file_path)
     cmd = f'python ./main.py ./data/{digitalHumanName}/ --workspace ./trial/{digitalHumanName}_{inference_part}/ \
-        -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy'
+        -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name}'
     run_command(cmd, args)
     logging.info('====== cmd processed ======')
     result_paths = sorted(glob.glob(os.path.join(f'./trial/{digitalHumanName}_{inference_part}/results/', '*.mp4')))

@@ -117,7 +117,7 @@ if __name__ == '__main__':
     parser.add_argument('-l', type=int, default=10)
     parser.add_argument('-m', type=int, default=50)
     parser.add_argument('-r', type=int, default=10)
-
+    parser.add_argument('--shm_name', default='')
     opt = parser.parse_args()
 
     if opt.O:

@@ -30,6 +30,8 @@ from torch_ema import ExponentialMovingAverage
 from packaging import version as pver
 import imageio
 import lpips
+from multiprocessing import shared_memory
+import struct
 
 def custom_meshgrid(*args):
     # ref: https://pytorch.org/docs/stable/generated/torch.meshgrid.html?highlight=meshgrid#torch.meshgrid
@@ -703,7 +705,7 @@ class Trainer(object):
             else: # path to ckpt
                 self.log(f"[INFO] Loading {self.use_checkpoint} ...")
                 self.load_checkpoint(self.use_checkpoint)
-
+        self.shm = shared_memory.SharedMemory(name=self.opt.shm_name)
     def __del__(self):
         if self.log_ptr: 
             self.log_ptr.close()
@@ -1045,8 +1047,9 @@ class Trainer(object):
 
                 all_preds.append(pred)
                 all_preds_depth.append(pred_depth)
+                self.shm.buf[:4] = struct.pack('i', len(loader) * loader.batch_size)  # 更新 shared_total
+                self.shm.buf[4:8] = struct.pack('i', i)  # 更新 shared_step
 
-                pbar.update(loader.batch_size)
 
         # write video
         all_preds = np.stack(all_preds, axis=0)
