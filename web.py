@@ -1,15 +1,16 @@
-from fastapi import FastAPI, BackgroundTasks, Query, HTTPException, APIRouter
+from fastapi import FastAPI, BackgroundTasks, Query, HTTPException, APIRouter, Request
 import subprocess
 import uvicorn
 import os
 from typing import Dict
 from datetime import datetime
-import sys
+from multiprocessing import shared_memory
+import struct
 
 app = FastAPI()
 router = APIRouter(prefix="/nerf")
 
-training_processes: Dict[str, subprocess.Popen] = {}
+inferring_processes: Dict[str, str] = {}
 
 def log_infer_status(status, log_file_path):
     log_dir = os.path.dirname(log_file_path)
@@ -39,6 +40,16 @@ def run_infer(command, log_file_path, results_log_path):
         log_infer_status(f"fail\n", results_log_path)
         with open(log_file_path, "a") as log_file:
             log_file.write(f"Error occurred: {str(e)}\n")
+    try:
+        global inferring_processes
+        shm_name = inferring_processes[command[3]]
+        shm = shared_memory.SharedMemory(name=shm_name)
+        shm.close()
+        shm.unlink()
+        inferring_processes.pop(command[3])
+    except Exception as e:
+        with open(log_file_path, "a") as log_file:
+            log_file.write(f"Error occurred in shm.close(): {str(e)}\n")
 
 @router.get("/process")
 async def process(
@@ -85,12 +96,18 @@ async def infer(
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file_path = os.path.join(log_directory, 'test.txt')
     # log_file_path = os.path.join(log_directory, f'{infer_id}_{timestamp}.txt')
+    shm = shared_memory.SharedMemory(create=True, size=2 * struct.calcsize('i'))
+    shm.buf[:4] = struct.pack('i', 0)
+    shm.buf[4:8] = struct.pack('i', 0)
+    global inferring_processes
+    inferring_processes[digitalHumanName] = shm.name
     command = [
         "python", "./scripts/infer.py",
         "--digitalHumanName", digitalHumanName,
         "--testAudioName", testAudioName,
         "--inference_part", inference_part,
-        "--log_file", log_file_path
+        "--log_file", log_file_path,
+        "--shm_name", shm.name
     ]
     results_log_path = "./_DEBUG/res/results.txt"
     background_tasks.add_task(run_infer, command, log_file_path, results_log_path)
@@ -99,6 +116,18 @@ async def infer(
         "log_file": log_file_path
     }
 
+@router.get("/get_infer_progress")
+async def get_infer_progress(
+    digitalHumanName: str = Query(..., description="Name of the digital human model."),
+):
+    global inferring_processes
+    shm_name = inferring_processes[digitalHumanName]
+    shm = shared_memory.SharedMemory(name=shm_name)
+    shared_total = struct.unpack('i', shm.buf[:4])[0]
+    shared_step = struct.unpack('i', shm.buf[4:8])[0]
+    return {
+        "message": f"total: {shared_total}, step: {shared_step}"
+    }
 
 @router.get("/stop_train")
 async def stop_train(train_name: str = Query(...)):
