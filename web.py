@@ -11,8 +11,6 @@ from starlette.responses import JSONResponse
 app = FastAPI()
 router = APIRouter(prefix="/nerf")
 
-inferring_processes: Dict[str, str] = {}
-
 def log_infer_status(status, log_file_path):
     log_dir = os.path.dirname(log_file_path)
     if not os.path.exists(log_dir):
@@ -114,6 +112,7 @@ async def train(train_name: str = Query(...), background_tasks: BackgroundTasks 
     background_tasks.add_task(run_train, command, "train.py", log_file_path, train_name)
     return {"message": f"Training started in background for train_name: {train_name}", "log_file": log_file_path}
 
+inferring_processes: Dict[str, str] = {}
 @router.get("/infer")
 async def infer(
     digitalHumanName: str = Query(..., description="Name of the digital human model."),
