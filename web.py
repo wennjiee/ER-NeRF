@@ -6,6 +6,7 @@ from typing import Dict
 from datetime import datetime
 from multiprocessing import shared_memory
 import struct
+from starlette.responses import JSONResponse
 
 app = FastAPI()
 router = APIRouter(prefix="/nerf")
@@ -50,6 +51,36 @@ def run_infer(command, log_file_path, results_log_path):
     except Exception as e:
         with open(log_file_path, "a") as log_file:
             log_file.write(f"Error occurred in shm.close(): {str(e)}\n")
+
+# @app.middleware("http")
+# async def intercept(request: Request, call_next):
+    
+#     EXCLUDED_PATH = ["/nerf/test"]
+#     if request.url.path in EXCLUDED_PATH:
+#         return await call_next(request)
+
+#     applyid = request.headers.get("applyid")
+#     token = request.headers.get("token")
+#     if not applyid or not token:
+#         return JSONResponse(
+#             content={"detail": "Missing applyid or token in headers"},
+#             status_code=400
+#         )
+
+#     EXPECTED_APPLYID = "expected-apply-id"
+#     EXPECTED_TOKEN = "expected-token"
+#     if applyid != EXPECTED_APPLYID:
+#         return JSONResponse(
+#             content={"detail": "Invalid applyid"},
+#             status_code=401
+#         )
+#     if token != EXPECTED_TOKEN:
+#         return JSONResponse(
+#             content={"detail": "Invalid token"},
+#             status_code=401
+#         )
+#     response = await call_next(request)
+#     return response
 
 @router.get("/process")
 async def process(
@@ -141,6 +172,11 @@ async def stop_train(train_name: str = Query(...)):
     del training_processes[train_name]
     
     return {"message": f"Training for '{train_name}' has been stopped."}
+
+@router.get("/test")
+async def test():
+    s = "Tested"
+    return {"message": f"{s}"}
 
 app.include_router(router)
 
