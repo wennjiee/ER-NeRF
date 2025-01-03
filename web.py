@@ -1,58 +1,44 @@
 from fastapi import FastAPI, BackgroundTasks, Query, HTTPException, APIRouter, Request
 import subprocess
 import uvicorn
-import os
+import os, sys
 from typing import Dict
 from datetime import datetime
 from multiprocessing import shared_memory
 import struct
 from starlette.responses import JSONResponse
+from scripts.inference import run_infer
 
 app = FastAPI()
 router = APIRouter(prefix="/nerf")
 
-def log_infer_status(status, log_file_path):
-    log_dir = os.path.dirname(log_file_path)
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with open(log_file_path, "a") as log_file:
-        log_file.write(f"{timestamp}|!{status}")
-
-def run_process():
-    return ""
-
-def run_train():
-    return ""
-
-def run_infer(command, log_file_path, results_log_path):
-    try:
-        with open(log_file_path, "a") as log_file:
-            process = subprocess.Popen(command, stdout=log_file, stderr=log_file, text=True, bufsize=1)
-            log_infer_status("running|!", results_log_path)
-            process.wait()
-            if process.returncode == 0:
-                log_infer_status(f"success\n", results_log_path)
-            else:
-                log_infer_status(f"fail\n", results_log_path)
-    except Exception as e:
-        log_infer_status(f"fail\n", results_log_path)
-        with open(log_file_path, "a") as log_file:
-            log_file.write(f"Error occurred: {str(e)}\n")
-    try:
-        global inferring_processes
-        shm_name = inferring_processes[command[3]]
-        shm = shared_memory.SharedMemory(name=shm_name)
-        shm.close()
-        shm.unlink()
-        inferring_processes.pop(command[3])
-    except Exception as e:
-        with open(log_file_path, "a") as log_file:
-            log_file.write(f"Error occurred in shm.close(): {str(e)}\n")
+# def run_infer(command, log_file_path, results_log_path):
+#     try:
+#         with open(log_file_path, "a") as log_file:
+#             process = subprocess.Popen(command, stdout=log_file, stderr=log_file, text=True, bufsize=1)
+#             log_infer_status("running|!", results_log_path)
+#             process.wait()
+#             if process.returncode == 0:
+#                 log_infer_status(f"success\n", results_log_path)
+#             else:
+#                 log_infer_status(f"fail\n", results_log_path)
+#     except Exception as e:
+#         log_infer_status(f"fail\n", results_log_path)
+#         with open(log_file_path, "a") as log_file:
+#             log_file.write(f"Error occurred: {str(e)}\n")
+#     try:
+#         global inferring_processes
+#         shm_name = inferring_processes[command[3]]
+#         shm = shared_memory.SharedMemory(name=shm_name)
+#         shm.close()
+#         shm.unlink()
+#         inferring_processes.pop(command[3])
+#     except Exception as e:
+#         with open(log_file_path, "a") as log_file:
+#             log_file.write(f"Error occurred in shm.close(): {str(e)}\n")
 
 # @app.middleware("http")
 # async def intercept(request: Request, call_next):
-    
 #     EXCLUDED_PATH = ["/nerf/test"]
 #     if request.url.path in EXCLUDED_PATH:
 #         return await call_next(request)
@@ -118,32 +104,12 @@ async def infer(
     digitalHumanName: str = Query(..., description="Name of the digital human model."),
     testAudioName: str = Query(..., description="Name of the test audio file."),
     inference_part: str = Query(..., description="Part for inference (e.g., 'head')."),
-    background_tasks: BackgroundTasks = None
+    background_tasks: BackgroundTasks = None,
 ):
-    infer_id = f"infer_{digitalHumanName}_talk_{testAudioName}"
-    log_directory = './_DEBUG/logs/'
-    os.makedirs(log_directory, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file_path = os.path.join(log_directory, 'test.txt')
-    # log_file_path = os.path.join(log_directory, f'{infer_id}_{timestamp}.txt')
-    shm = shared_memory.SharedMemory(create=True, size=2 * struct.calcsize('i'))
-    shm.buf[:4] = struct.pack('i', 0)
-    shm.buf[4:8] = struct.pack('i', 0)
-    global inferring_processes
-    inferring_processes[digitalHumanName] = shm.name
-    command = [
-        "python", "./scripts/infer.py",
-        "--digitalHumanName", digitalHumanName,
-        "--testAudioName", testAudioName,
-        "--inference_part", inference_part,
-        "--log_file", log_file_path,
-        "--shm_name", shm.name
-    ]
-    results_log_path = "./_DEBUG/res/results.txt"
-    background_tasks.add_task(run_infer, command, log_file_path, results_log_path)
+    background_tasks.add_task(run_infer, digitalHumanName, testAudioName, inference_part)
     return {
-        "message": f"Inference started in background with digitalHumanName: {digitalHumanName}, testAudioName: {testAudioName}, inference_part: {inference_part}",
-        "log_file": log_file_path
+        "message": f"Inference started in background with digitalHumanName: {digitalHumanName}, \
+            testAudioName: {testAudioName}, inference_part: {inference_part}",
     }
 
 @router.get("/get_infer_progress")
