@@ -14,9 +14,9 @@ class HubertProcessor:
         return cls._instance
 
     def initialize(self):
-        print("Initializing the HuBERT Processor and Model...")
-        self.wav2vec2_processor = Wav2Vec2Processor.from_pretrained("facebook/hubert-large-ls960-ft")
-        self.hubert_model = HubertModel.from_pretrained("facebook/hubert-large-ls960-ft")
+        print("Initializing the System With HuBERT Processor and Model")
+        self.wav2vec2_processor = Wav2Vec2Processor.from_pretrained('C:/Users/qc/Desktop/test/hubert-ls960')
+        self.hubert_model = HubertModel.from_pretrained('C:/Users/qc/Desktop/test/hubert-ls960')
         print("Initialization Finished")
 
     @torch.no_grad()
@@ -73,16 +73,16 @@ class HubertProcessor:
             return tensor[:size[0]]
         return tensor
     
-    def process_audio(self, wav_path):
+    def process_audio(self, wav_path, logger):
         
         speech, sr = sf.read(wav_path)
 
         speech_16k = librosa.resample(speech, orig_sr=sr, target_sr=16000)  
-        print(f"Processing {wav_path}...")
+        logger.info(f"Processing {wav_path}...")
 
         hubert_hidden = self.get_hubert_from_16k_speech(speech_16k)
 
         hubert_hidden = self.make_even_first_dim(hubert_hidden).reshape(-1, 2, 1024)
         np.save(wav_path.replace('.wav', '_hu.npy'), hubert_hidden.detach().numpy())
-        print(f"Saved features to {wav_path.replace('.wav', '_hu.npy')}")
-        print(hubert_hidden.detach().numpy().shape)
+        logger.info(f"Saved features to {wav_path.replace('.wav', '_hu.npy')}")
+        logger.info(hubert_hidden.detach().numpy().shape)
