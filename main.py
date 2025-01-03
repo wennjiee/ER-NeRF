@@ -182,7 +182,7 @@ if __name__ == '__main__':
         trainer = Trainer('ngp', opt, model, device=device, workspace=opt.workspace, criterion=criterion, fp16=opt.fp16, metrics=metrics, use_checkpoint=opt.ckpt)
 
         if opt.test_train:
-            test_set = NeRFDataset(opt, device=device, type='train')
+            test_set = NeRFDataset(opt, device=device, type='all')
             # a manual fix to test on the training dataset
             test_set.training = False 
             test_set.num_rays = -1
