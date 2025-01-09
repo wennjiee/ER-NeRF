@@ -15,10 +15,17 @@ class HubertProcessor:
 
     def initialize(self):
         print("Initializing the System With HuBERT Processor and Model")
-        self.wav2vec2_processor = Wav2Vec2Processor.from_pretrained('./assets/hubert-ls960')
-        self.hubert_model = HubertModel.from_pretrained('./assets/hubert-ls960')
-        print("Initialization Finished")
-
+        try:
+            self.wav2vec2_processor = Wav2Vec2Processor.from_pretrained('./assets/hubert-ls960')
+            self.hubert_model = HubertModel.from_pretrained('./assets/hubert-ls960')
+            print("Initialization Finished")
+        except Exception as e:
+            self.wav2vec2_processor = None
+            self.hubert_model = None
+            type(self)._instance = None
+            print("Initialization Failed")
+            raise RuntimeError(f"Failed to initialize models: {e}")
+    
     @torch.no_grad()
     def get_hubert_from_16k_speech(self, speech, device="cuda:0"):
         self.hubert_model = self.hubert_model.to(device)
