@@ -7,7 +7,7 @@ from datetime import datetime
 from multiprocessing import shared_memory
 import struct
 from starlette.responses import JSONResponse
-from scripts.inference import run_infer
+from scripts.inference import run_infer, terminate_infer
 
 app = FastAPI()
 router = APIRouter(prefix="/nerf")
@@ -125,18 +125,12 @@ async def get_infer_progress(
         "message": f"total: {shared_total}, step: {shared_step}"
     }
 
-@router.get("/stop_train")
-async def stop_train(train_name: str = Query(...)):
-    process = training_processes.get(train_name)
-    
-    if not process:
-        raise HTTPException(status_code=404, detail=f"No active training process found for '{train_name}'.")
-    
-    process.terminate()
-    process.wait()
-    del training_processes[train_name]
-    
-    return {"message": f"Training for '{train_name}' has been stopped."}
+@app.get("/terminate_infer")
+async def terminate_inference(
+    digitalHumanName: str = Query(..., description="Name of the digital human model to terminate.")
+):
+    result = terminate_infer(digitalHumanName)
+    return {"message": result}
 
 @router.get("/test")
 async def test():
