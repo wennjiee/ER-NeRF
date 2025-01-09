@@ -15,8 +15,8 @@ class HubertProcessor:
 
     def initialize(self):
         print("Initializing the System With HuBERT Processor and Model")
-        self.wav2vec2_processor = Wav2Vec2Processor.from_pretrained('C:/Users/qc/Desktop/test/hubert-ls960')
-        self.hubert_model = HubertModel.from_pretrained('C:/Users/qc/Desktop/test/hubert-ls960')
+        self.wav2vec2_processor = Wav2Vec2Processor.from_pretrained('./assets/hubert-ls960')
+        self.hubert_model = HubertModel.from_pretrained('./assets/hubert-ls960')
         print("Initialization Finished")
 
     @torch.no_grad()
