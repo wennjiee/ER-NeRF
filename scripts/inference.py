@@ -10,7 +10,7 @@ from multiprocessing import shared_memory
 import struct
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from data_utils.hubert_processor import HubertProcessor
-hubert_processor = HubertProcessor()
+inferring_processes = {}
 
 def setup_logger(id: int, infer_file_path: str) -> logging.Logger:
     logger = logging.getLogger(f"infer_{id}")
@@ -35,12 +35,13 @@ def log_status(res_file_path, status):
     with open(res_file_path, "a") as log_file:
         log_file.write(f"{timestamp}|!{status}")
 
-def run_subprocess(cmd, log_file_path, result_log_path, logger):
+def run_subprocess(cmd, log_file_path, result_log_path, logger, digitalHumanName):
     try:
-        logger.info(f"Start inference for \command = {cmd}")
+        logger.info(f"Start inference for \ncommand = {cmd}")
         file_path = os.path.abspath(log_file_path)
         with open(file_path, "a") as log_file:
             process = subprocess.Popen(cmd, stdout=log_file, stderr=log_file, text=True, bufsize=1)
+            inferring_processes[digitalHumanName] = process
             process.wait()
         if process.returncode == 0:
             logger.info(f' ===== Finish Inference Successfully =====')
@@ -53,6 +54,38 @@ def run_subprocess(cmd, log_file_path, result_log_path, logger):
         log_status(result_log_path, f"fail\n")
         logger.error(f'Failed to Infer, Exception is : {e}')
         return -2
+
+def terminate_infer(digitalHumanName: str):
+    res_log_dir = './_DEBUG/res/'
+    os.makedirs(res_log_dir, mode=0o777, exist_ok=True)
+    result_log_path = os.path.join(res_log_dir, 'result.txt')
+    # log_status(result_log_path, "running|!")
+
+    infer_log_dir = './_DEBUG/logs/'
+    os.makedirs(infer_log_dir, mode=0o777, exist_ok=True)
+    infer_file_path = os.path.join(infer_log_dir, 'test.txt')
+    logger = setup_logger(digitalHumanName, infer_file_path)
+
+    process = inferring_processes.get(digitalHumanName)
+    if process:
+        try:
+            logger.info(f"Terminating process for {digitalHumanName}")
+            process.terminate()
+            process.wait(timeout=10)
+            del inferring_processes[digitalHumanName]
+            log_status(result_log_path, f"fail\n")
+            return f"Process for {digitalHumanName} terminated successfully."
+        except subprocess.TimeoutExpired:
+            logger.error(f"Process for {digitalHumanName} did not terminate in time. Force killing.")
+            process.kill()
+            del inferring_processes[digitalHumanName]
+            log_status(result_log_path, f"fail\n")
+            return f"Process for {digitalHumanName} forcefully killed."
+        except Exception as e:
+            logger.error(f"Error terminating process for {digitalHumanName}: {e}")
+            return f"Error terminating process: {e}"
+    else:
+        return f"No running process found for {digitalHumanName}"
 
 def video_add_audio(video_path: str, audio_path: str, output_dir: str, digitalHumanName, testAudioName, infer_file_path):
     _ext_video = os.path.basename(video_path).strip().split('.')[-1]
@@ -85,7 +118,7 @@ def run_infer(digitalHumanName, testAudioName, inference_part):
     logger.info('[---------------Start Inferring---------------]')
 
     try:
-        global hubert_processor
+        hubert_processor = HubertProcessor()
         start_time = datetime.now()
         test_audio = f'./inference/audio_inputs/{testAudioName}.wav'
         logger.info('Start process audio')
@@ -99,9 +132,6 @@ def run_infer(digitalHumanName, testAudioName, inference_part):
         close_logger(logger)
         return
     
-    checkpoints_paths = sorted(glob.glob(os.path.join(f'./trial/{digitalHumanName}_{inference_part}/checkpoints/', '*.pth')), reverse=True)
-    ck_path = checkpoints_paths[0].replace('\\', '/')
-    
     shm = shared_memory.SharedMemory(create=True, size=2 * struct.calcsize('i'))
     shm_name = shm.name
     shm.buf[:4] = struct.pack('i', 0)
@@ -109,7 +139,7 @@ def run_infer(digitalHumanName, testAudioName, inference_part):
 
     cmd = f'python ./main.py ./data/{digitalHumanName}/ --workspace ./trial/{digitalHumanName}_{inference_part}/ \
         -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name}'
-    status = run_subprocess(cmd, infer_file_path, result_log_path, logger)
+    status = run_subprocess(cmd, infer_file_path, result_log_path, logger, digitalHumanName)
     
     if status == 0:
         result_paths = sorted(glob.glob(os.path.join(f'./trial/{digitalHumanName}_{inference_part}/results/', '*.mp4')))
