@@ -8,7 +8,8 @@ import subprocess
 from datetime import datetime
 from multiprocessing import shared_memory
 import struct
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+print(os.getcwd())
 from data_utils.hubert_processor import HubertProcessor
 inferring_processes = {}
 
