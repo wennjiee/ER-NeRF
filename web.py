@@ -7,7 +7,7 @@ from datetime import datetime
 from multiprocessing import shared_memory
 import struct
 from starlette.responses import JSONResponse
-from scripts.inference import run_infer, terminate_infer
+from scripts.inference import run_infer, terminate_infer, get_infer_progress
 
 app = FastAPI()
 router = APIRouter(prefix="/nerf")
@@ -98,7 +98,6 @@ async def train(train_name: str = Query(...), background_tasks: BackgroundTasks 
     background_tasks.add_task(run_train, command, "train.py", log_file_path, train_name)
     return {"message": f"Training started in background for train_name: {train_name}", "log_file": log_file_path}
 
-inferring_processes: Dict[str, str] = {}
 @router.get("/infer")
 async def infer(
     digitalHumanName: str = Query(..., description="Name of the digital human model."),
@@ -112,15 +111,13 @@ async def infer(
             testAudioName: {testAudioName}, inference_part: {inference_part}",
     }
 
-@router.get("/get_infer_progress")
-async def get_infer_progress(
+@router.get("/infer_progress")
+async def infer_progress(
     digitalHumanName: str = Query(..., description="Name of the digital human model."),
+    testAudioName: str = Query(..., description="Name of the test audio file."),
+    inference_part: str = Query(..., description="Part for inference (e.g., 'head').")
 ):
-    global inferring_processes
-    shm_name = inferring_processes[digitalHumanName]
-    shm = shared_memory.SharedMemory(name=shm_name)
-    shared_total = struct.unpack('i', shm.buf[:4])[0]
-    shared_step = struct.unpack('i', shm.buf[4:8])[0]
+    shared_total, shared_step = get_infer_progress(digitalHumanName, testAudioName, inference_part)
     return {
         "message": f"total: {shared_total}, step: {shared_step}"
     }

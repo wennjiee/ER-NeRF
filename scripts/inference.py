@@ -11,7 +11,8 @@ import struct
 # sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 print(os.getcwd())
 from data_utils.hubert_processor import HubertProcessor
-inferring_processes = {}
+from typing import Dict
+inferring_processes: Dict[str, str] = {}
 
 def setup_logger(id: int, infer_file_path: str) -> logging.Logger:
     logger = logging.getLogger(f"infer_{id}")
@@ -149,3 +150,22 @@ def run_infer(digitalHumanName, testAudioName, inference_part):
         log_status(result_log_path, f"success\n")
         logger.info('[---------------Finished Video ADD Audio---------------]\n')
     close_logger(logger)
+
+def get_infer_progress(digitalHumanName, testAudioName, inference_part):
+    
+    if digitalHumanName not in inferring_processes:
+        return {"error": f"{digitalHumanName} not found in inferring_processes"}
+    shm_name = inferring_processes[digitalHumanName]
+    
+    try:
+        shm = shared_memory.SharedMemory(name=shm_name)
+    except FileNotFoundError:
+        return {"error": f"Shared memory {shm_name} not found"}
+    
+    try:
+        shared_total = struct.unpack('i', shm.buf[:4])[0]
+        shared_step = struct.unpack('i', shm.buf[4:8])[0]
+    except struct.error:
+        return {"error": "Failed to unpack shared memory"}
+    
+    return [shared_total, shared_step]
