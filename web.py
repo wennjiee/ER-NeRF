@@ -134,8 +134,8 @@ async def terminate_inference(
 
 @router.get("/test")
 async def test():
-    s = "Tested"
-    return {"message": f"{s}"}
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return {"message": f"Tested at {timestamp}"}
 
 app.include_router(router)
 
