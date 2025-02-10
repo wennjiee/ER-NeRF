@@ -12,6 +12,7 @@ import struct
 print(os.getcwd())
 from data_utils.hubert_processor import HubertProcessor
 from typing import Dict
+
 inferring_processes: Dict[str, str] = {}
 
 def setup_logger(id: int, infer_file_path: str) -> logging.Logger:
@@ -168,4 +169,4 @@ def get_infer_progress(digitalHumanName, testAudioName, inference_part):
     except struct.error:
         return {"error": "Failed to unpack shared memory"}
     
-    return [shared_total, shared_step]
+    return shared_total, shared_step
