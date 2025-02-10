@@ -119,7 +119,9 @@ if __name__ == '__main__':
     parser.add_argument('-r', type=int, default=10)
     parser.add_argument('--shm_name', default='')
     opt = parser.parse_args()
-
+    
+    shm = shared_memory.SharedMemory(name=opt.shm_name)
+    
     if opt.O:
         opt.fp16 = True
         opt.exp_eye = True

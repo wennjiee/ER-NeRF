@@ -109,6 +109,12 @@ def video_add_audio(video_path: str, audio_path: str, output_dir: str, digitalHu
     return result
 
 def run_infer(digitalHumanName, testAudioName, inference_part):
+    
+    shm = shared_memory.SharedMemory(create=True, size=2 * struct.calcsize('i'))
+    shm_name = shm.name
+    shm.buf[:4] = struct.pack('i', 100**2) # define total_step
+    shm.buf[4:8] = struct.pack('i', 100**2) # define current_step
+
     res_log_dir = './_DEBUG/res/'
     os.makedirs(res_log_dir, mode=0o777, exist_ok=True)
     result_log_path = os.path.join(res_log_dir, 'result.txt')
@@ -135,11 +141,6 @@ def run_infer(digitalHumanName, testAudioName, inference_part):
         close_logger(logger)
         return
     
-    shm = shared_memory.SharedMemory(create=True, size=2 * struct.calcsize('i'))
-    shm_name = shm.name
-    shm.buf[:4] = struct.pack('i', 0)
-    shm.buf[4:8] = struct.pack('i', 0)
-
     cmd = f'python ./main.py ./data/{digitalHumanName}/ --workspace ./trial/{digitalHumanName}_{inference_part}/ \
         -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name}'
     status = run_subprocess(cmd, infer_file_path, result_log_path, logger, digitalHumanName)
