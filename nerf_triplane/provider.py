@@ -13,7 +13,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from .utils import get_audio_features, get_rays, get_bg_coords, convert_poses
+from .utils import get_audio_features, get_rays, get_bg_coords, convert_poses, get_audio_features_acc
 
 # ref: https://github.com/NVlabs/instant-ngp/blob/b76004c8cf478880227401ae763be4c02f80b62f/include/neural-graphics-primitives/nerf_loader.h#L50
 def nerf_matrix_to_ngp(pose, scale=0.33, offset=[0, 0, 0]):
@@ -748,6 +748,136 @@ class NeRFDataset:
         results['poses'] = poses # [B, 4, 4]
             
         return results
+    
+    def mirror_index_acc(self, index):
+        size = self.poses.shape[0]
+        index = torch.tensor(index) if not isinstance(index, torch.Tensor) else index  # 确保index是Tensor类型
+        
+        turn = index // size
+        res = index % size
+        mirrored_index = torch.where(turn % 2 == 0, res, size - res - 1)
+        
+        return mirrored_index
+
+    def collate_acc(self, index):
+        
+        results = {}
+        
+        B = len(index)
+
+        # audio use the original index
+        if self.auds is not None:
+            auds = get_audio_features_acc(self.auds, self.opt.att, index).to(self.device) # audio attention mode (0 = turn off, 1 = left-direction, 2 = bi-direction)
+            results['auds'] = auds # get auds based on current data, auds=8*29*16
+
+        # head pose and bg image may mirror (replay --> <-- --> <--).
+        index = self.mirror_index_acc(index)
+
+        poses = self.poses[index].to(self.device) # [B, 4, 4], 其中self.poses表示训练集不同图片的相机外参7272*4*4
+        
+        if self.training and self.opt.finetune_lips:
+            rect = self.lips_rect[index[0]]
+            results['rect'] = rect
+            rays = get_rays(poses, self.intrinsics, self.H, self.W, -1, rect=rect)
+        else:
+            rays = get_rays(poses, self.intrinsics, self.H, self.W, self.num_rays, self.opt.patch_size)
+
+        results['index'] = index # for ind. code
+        results['H'] = self.H
+        results['W'] = self.W
+        results['rays_o'] = rays['rays_o']
+        results['rays_d'] = rays['rays_d']
+
+        # get a mask for rays inside rect_face
+        if self.training:
+            
+            face_rect_tensor = torch.tensor(self.face_rect, device=rays['i'].device)
+            face_rects = face_rect_tensor[index]
+            xmin, xmax, ymin, ymax = face_rects[:, 0], face_rects[:, 1], face_rects[:, 2], face_rects[:, 3]
+
+            face_mask = (rays['j'] >= xmin.unsqueeze(-1)) & (rays['j'] < xmax.unsqueeze(-1)) & \
+                        (rays['i'] >= ymin.unsqueeze(-1)) & (rays['i'] < ymax.unsqueeze(-1))  # [B, N, 3]
+            results['face_mask'] = face_mask
+
+            lhalf_rect_tensor = torch.tensor(self.lhalf_rect, device=rays['i'].device)
+            lhalf_rects = lhalf_rect_tensor[index]  # [B, 4]
+            xmin, xmax, ymin, ymax = lhalf_rects[:, 0], lhalf_rects[:, 1], lhalf_rects[:, 2], lhalf_rects[:, 3]
+            lhalf_mask = (rays['j'] >= xmin.unsqueeze(-1)) & (rays['j'] < xmax.unsqueeze(-1)) & \
+                        (rays['i'] >= ymin.unsqueeze(-1)) & (rays['i'] < ymax.unsqueeze(-1))  # [B, N, 3]
+            results['lhalf_mask'] = lhalf_mask
+
+        if self.opt.exp_eye:
+            results['eye'] = self.eye_area[index].to(self.device) # [1]
+            if self.training:
+                results['eye'] += (np.random.rand()-0.5) / 10
+                xmin, xmax, ymin, ymax = self.eye_rect[index[0]]
+                eye_mask = (rays['j'] >= xmin) & (rays['j'] < xmax) & (rays['i'] >= ymin) & (rays['i'] < ymax) # [B, N]
+                results['eye_mask'] = eye_mask
+
+        else:
+            results['eye'] = None
+
+        # load bg
+        paths = [self.torso_img[i] for i in index]  # 获取批量索引对应的路径
+        bg_torso_imgs = []
+        for path in paths:
+            img = cv2.imread(path, cv2.IMREAD_UNCHANGED) # [H, W, 4] 加载包括 alpha 通道的原始图像 Alpha通道的取值范围通常是从0到255，其中0代表完全透明（即该像素完全不可见，255代表该像素完全可见
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2RGBA) # 颜色空间转换 至 cv2.COLOR_BGRA2RGBA
+            img = img.astype(np.float32) / 255 # [H, W, 3/4]
+            img = torch.from_numpy(img).unsqueeze(0) # 1*450*450*4 unsqueeze(0)增加第0维度
+            bg_torso_imgs.append(img)
+        
+        bg_torso_img = torch.cat(bg_torso_imgs, dim=0)
+        bg_torso_img = bg_torso_img[..., :3] * bg_torso_img[..., 3:] + self.bg_img * (1 - bg_torso_img[..., 3:])  # 合成图像
+        bg_torso_img = bg_torso_img.view(len(index), -1, 3).to(self.device)  # [B, H*W, 3]
+
+        if not self.opt.torso:
+            bg_img = bg_torso_img # 不 包括躯干
+        else:
+            bg_img = self.bg_img.view(1, -1, 3).repeat(B, 1, 1).to(self.device) # 包括躯干 repeat函数
+
+        if self.training:
+            bg_img = torch.gather(bg_img, 1, torch.stack(3 * [rays['inds']], -1)) # [B, N, 3]
+
+        results['bg_color'] = bg_img # 采样gather后的bg_img
+
+        if self.opt.torso and self.training:
+            bg_torso_img = torch.gather(bg_torso_img, 1, torch.stack(3 * [rays['inds']], -1)) # [B, N, 3]
+            results['bg_torso_color'] = bg_torso_img # 采样gather后的bg_torso_img
+        
+        paths = [self.images[i] for i in index]
+        image_batch = []
+        for path in paths:
+            img = cv2.imread(path, cv2.IMREAD_UNCHANGED)  # [H, W, 3/4]
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # 转换为 RGB 格式
+            img = img.astype(np.float32) / 255  # 归一化至 [0, 1]
+            img_tensor = torch.from_numpy(img).unsqueeze(0)  # [1, H, W, 3]
+            image_batch.append(img_tensor)
+        image_batch = torch.cat(image_batch, dim=0)  # [B, H, W, 3]
+        images = image_batch.to(self.device)  # [B, H, W, 3] -> to device
+
+        if self.training:
+            C = images.shape[-1]
+            # view中一个参数指定为-1，代表自动调整这个维度上的元素个数，保证元素的总数不变,images.view(B, -1, C) = 1*202500*1
+            # torch.stack(C * [rays['inds']], -1) = 1*65536*3, t[0][0][0] = t[0][0][1/2]
+            # torch.gather(t, dim, index) 以索引index=1*65536*3和维度dim=1在image=1*202500*1上进行收集，形成新的tensor=1*65536*3
+            images = torch.gather(images.view(B, -1, C), 1, torch.stack(C * [rays['inds']], -1)) # [B, N, 3/4]
+            
+        results['images'] = images # gather后的gt_imgs
+
+        bg_coords_expanded = self.bg_coords.expand(B, -1, -1)  # [B, N, 2]
+        if self.training:
+            bg_coords = torch.gather(bg_coords_expanded, 1, rays['inds'].unsqueeze(-1).expand(-1, -1, 2))  # [B, 65536, 2]
+        else:
+            bg_coords = bg_coords_expanded # [1, N, 2]
+
+        results['bg_coords'] = bg_coords # gather后的像素坐标[x，y]
+
+        # results['poses'] = convert_poses(poses) # [B, 6]
+        # results['poses_matrix'] = poses # [B, 4, 4]
+        results['poses'] = poses # [B, 4, 4]
+            
+        return results
 
     def dataloader(self):
 
@@ -762,7 +892,7 @@ class NeRFDataset:
             else:
                 size = 2 * self.poses.shape[0]
 
-        loader = DataLoader(list(range(size)), batch_size=1, collate_fn=self.collate, shuffle=self.training, num_workers=0)
+        loader = DataLoader(list(range(size)), batch_size=2, collate_fn=self.collate_acc, shuffle=self.training, num_workers=0)
         loader._data = self # an ugly fix... we need poses in trainer.
 
         # do evaluate if has gt images and use self-driven setting

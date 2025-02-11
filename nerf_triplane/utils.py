@@ -38,6 +38,36 @@ def custom_meshgrid(*args):
     else:
         return torch.meshgrid(*args, indexing='ij')
 
+def get_audio_features_acc(features, att_mode, indices): 
+    if att_mode == 2:
+        
+        indices = torch.tensor(indices, dtype=torch.int)
+        lefts = indices - 4
+        rights = indices + 4
+        
+        # Calculate pad amounts for left and right sides
+        pad_lefts = torch.maximum(torch.zeros_like(lefts), -lefts)
+        pad_rights = torch.maximum(torch.zeros_like(rights), rights - features.shape[0])
+        
+        # Update lefts and rights to be within bounds
+        lefts = torch.maximum(lefts, torch.zeros_like(lefts))
+        rights = torch.minimum(rights, features.shape[0] * torch.ones_like(rights))
+
+        auds_list = []
+        for left, right, pad_left, pad_right in zip(lefts, rights, pad_lefts, pad_rights):
+            
+            aud = features[left:right]
+            if pad_left > 0:
+                aud = torch.cat([torch.zeros_like(aud[:pad_left]), aud], dim=0)
+            if pad_right > 0:
+                aud = torch.cat([aud, torch.zeros_like(aud[:pad_right])], dim=0)
+            
+            auds_list.append(aud)
+
+        auds = torch.stack(auds_list, dim=0)
+        return auds
+    else:
+        raise NotImplementedError(f'wrong att_mode: {att_mode}')
 
 def get_audio_features(features, att_mode, index):
     if att_mode == 0:
@@ -1239,9 +1269,9 @@ class Trainer(object):
 
         for data in loader:
             # update grid every 16 steps; torch.cuda.amp.autocast自动混合精度计算
-            if self.model.cuda_ray and self.global_step % self.opt.update_extra_interval == 0:
-                with torch.cuda.amp.autocast(enabled=self.fp16):
-                    self.model.update_extra_state()
+            # if self.model.cuda_ray and self.global_step % self.opt.update_extra_interval == 0:
+            #     with torch.cuda.amp.autocast(enabled=self.fp16):
+            #         self.model.update_extra_state()
                     
             self.local_step += 1
             self.global_step += 1
