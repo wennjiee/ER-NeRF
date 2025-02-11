@@ -170,9 +170,10 @@ class AudioAttNet(nn.Module):
 
     def forward(self, x):
         # x: [1, seq_len, dim_aud]
+        B, _, _ = x.shape
         y = x.permute(0, 2, 1)  # [1, dim_aud, seq_len]
         y = self.attentionConvNet(y) 
-        y = self.attentionNet(y.view(1, self.seq_len)).view(1, self.seq_len, 1)
+        y = self.attentionNet(y.view(B, self.seq_len)).view(B, self.seq_len, 1)
         return torch.sum(y * x, dim=1) # [1, dim_aud]
 
 
@@ -199,12 +200,13 @@ class AudioNet(nn.Module):
         )
 
     def forward(self, x):
+        B, C, H, W = x.shape
         half_w = int(self.win_size/2)
         x = x[:, :, :, 8 - half_w:8 + half_w]  
-        x = x.view(-1, 1024, 2)   
+        x = x.view(-1, H, W)   
         x = self.encoder_conv(x).squeeze(-1)
         x = self.encoder_fc1(x)
-        x = x.view(-1, self.dim_aud)
+        x = x.view(B, -1, self.dim_aud) # 2 8 32
         return x
 
 
@@ -375,7 +377,7 @@ class NeRFNetwork(NeRFRenderer):
         enc_a = self.audio_net(a) # [1/8, 64]
 
         if self.att > 0:
-            enc_a = self.audio_att_net(enc_a.unsqueeze(0)) # [1, 64]
+            enc_a = self.audio_att_net(enc_a) # [1, 64]
             
         return enc_a
 
