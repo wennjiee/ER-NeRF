@@ -200,9 +200,11 @@ class AudioNet(nn.Module):
 
     def forward(self, x):
         half_w = int(self.win_size/2)
-        x = x[:, :, 8-half_w:8+half_w]
+        x = x[:, :, :, 8 - half_w:8 + half_w]  
+        x = x.view(-1, 1024, 2)   
         x = self.encoder_conv(x).squeeze(-1)
         x = self.encoder_fc1(x)
+        x = x.view(-1, self.dim_aud)
         return x
 
 
