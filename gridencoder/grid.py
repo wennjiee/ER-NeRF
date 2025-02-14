@@ -6,8 +6,13 @@ from torch.autograd import Function
 from torch.autograd.function import once_differentiable
 from torch.cuda.amp import custom_bwd, custom_fwd 
 
+import os
+import sys
+module_dir = os.path.join(os.getcwd(), 'gridencoder')
+if module_dir not in sys.path:
+    sys.path.append(module_dir)
 try:
-    import _gridencoder as _backend
+    import _grid_encoder as _backend
 except ImportError:
     from .backend import _backend
 

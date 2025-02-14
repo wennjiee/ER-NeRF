@@ -6,6 +6,11 @@ import torch.nn as nn
 from torch.autograd import Function
 from torch.cuda.amp import custom_bwd, custom_fwd
 
+import os
+import sys
+module_dir = os.path.join(os.getcwd(), 'raymarching')
+if module_dir not in sys.path:
+    sys.path.append(module_dir)
 try:
     import _raymarching_face as _backend
 except ImportError:
