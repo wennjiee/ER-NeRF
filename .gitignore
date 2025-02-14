@@ -21,3 +21,4 @@ logs
 pretrained
 *.jpg
 assets/
+*.pyd
