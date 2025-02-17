@@ -16,8 +16,8 @@ class HubertProcessor:
     def initialize(self):
         print("Initializing the System With HuBERT Processor and Model")
         try:
-            self.wav2vec2_processor = Wav2Vec2Processor.from_pretrained('./assets/hubert-ls960')
-            self.hubert_model = HubertModel.from_pretrained('./assets/hubert-ls960')
+            self.wav2vec2_processor = Wav2Vec2Processor.from_pretrained('../_pretrained/hubert-ls960')
+            self.hubert_model = HubertModel.from_pretrained('../_pretrained/hubert-ls960')
             print("Initialization Finished")
         except Exception as e:
             self.wav2vec2_processor = None
