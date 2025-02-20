@@ -22,3 +22,4 @@ pretrained
 *.jpg
 assets/
 *.pyd
+_public_data/
