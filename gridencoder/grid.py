@@ -8,11 +8,11 @@ from torch.cuda.amp import custom_bwd, custom_fwd
 
 import os
 import sys
-module_dir = os.path.join(os.getcwd(), 'gridencoder')
+module_dir = os.path.join(os.getcwd(), 'gridencoder', 'build')
 if module_dir not in sys.path:
     sys.path.append(module_dir)
 try:
-    import _grid_encoder as _backend
+    import _gridencoder as _backend
 except ImportError:
     from .backend import _backend
 

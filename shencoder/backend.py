@@ -28,13 +28,16 @@ elif os.name == "nt":
             raise RuntimeError("Could not locate a supported Microsoft Visual C++ installation")
         os.environ["PATH"] += ";" + cl_path
 
-_backend = load(name='_sh_encoder',
+build_dir = os.path.join(os.getcwd(), 'shencoder', 'build')
+os.makedirs(build_dir, mode=0o777, exist_ok=True)
+_backend = load(name='_shencoder',
                 extra_cflags=c_flags,
                 extra_cuda_cflags=nvcc_flags,
                 sources=[os.path.join(_src_path, 'src', f) for f in [
                     'shencoder.cu',
                     'bindings.cpp',
                 ]],
+                build_directory=build_dir
                 )
 
 __all__ = ['_backend']

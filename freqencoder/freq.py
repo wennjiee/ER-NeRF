@@ -8,7 +8,7 @@ from torch.cuda.amp import custom_bwd, custom_fwd
 
 import os
 import sys
-module_dir = os.path.join(os.getcwd(), 'freqencoder')
+module_dir = os.path.join(os.getcwd(), 'freqencoder', 'build')
 if module_dir not in sys.path:
     sys.path.append(module_dir)
 try:
