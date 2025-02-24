@@ -59,12 +59,12 @@ def run_subprocess(cmd, log_file_path, result_log_path, logger, digitalHumanName
         return -2
 
 def terminate_infer(digitalHumanName: str):
-    res_log_dir = './_DEBUG/res/'
+    res_log_dir = './_debug/res/'
     os.makedirs(res_log_dir, mode=0o777, exist_ok=True)
     result_log_path = os.path.join(res_log_dir, 'result.txt')
     # log_status(result_log_path, "running|!")
 
-    infer_log_dir = './_DEBUG/logs/'
+    infer_log_dir = './_debug/logs/'
     os.makedirs(infer_log_dir, mode=0o777, exist_ok=True)
     infer_file_path = os.path.join(infer_log_dir, 'test.txt')
     logger = setup_logger(digitalHumanName, infer_file_path)
@@ -108,19 +108,19 @@ def video_add_audio(video_path: str, audio_path: str, output_dir: str, digitalHu
     # ff.run()
     return result
 
-def run_infer(digitalHumanName, testAudioName, inference_part):
+def run_infer(digitalHumanName, testAudioName, inference_part, publicId=None):
     
     shm = shared_memory.SharedMemory(create=True, size=2 * struct.calcsize('i'))
     shm_name = shm.name
     shm.buf[:4] = struct.pack('i', 100**2) # define total_step
     shm.buf[4:8] = struct.pack('i', 100**2) # define current_step
 
-    res_log_dir = './_DEBUG/res/'
+    res_log_dir = './_debug/res/'
     os.makedirs(res_log_dir, mode=0o777, exist_ok=True)
     result_log_path = os.path.join(res_log_dir, 'result.txt')
     log_status(result_log_path, "running|!")
 
-    infer_log_dir = './_DEBUG/logs/'
+    infer_log_dir = './_debug/logs/'
     os.makedirs(infer_log_dir, mode=0o777, exist_ok=True)
     infer_file_path = os.path.join(infer_log_dir, 'test.txt')
     logger = setup_logger(digitalHumanName, infer_file_path)
@@ -141,12 +141,31 @@ def run_infer(digitalHumanName, testAudioName, inference_part):
         close_logger(logger)
         return
     
-    cmd = f'python ./main.py ./data/{digitalHumanName}/ --workspace ./trial/{digitalHumanName}_{inference_part}/ \
-        -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name}'
+    public_id_dic: Dict[str, str] = {
+        "250220": "wangwenjie",
+        "250221": "liuchang",
+        "250222": "boyinnv"
+    }
+    if publicId == None:
+        cmd = f'python ./main.py ./data/{digitalHumanName}/ --workspace ./trial/{digitalHumanName}_{inference_part}/ \
+            -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name}'
+    elif publicId in public_id_dic:
+        public_value = public_id_dic[publicId]
+        cmd = f'python ./main.py ./_public_data/{public_value}/datasets --workspace ./_public_data/{public_value}/trial/{inference_part}/ \
+    -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name}'
+    else:
+        log_status(result_log_path, f"fail\n")
+        logger.error(f'Failed to Infer, publicId: {publicId} matched error!')
+        close_logger(logger)
+        return
+    
     status = run_subprocess(cmd, infer_file_path, result_log_path, logger, digitalHumanName)
     
     if status == 0:
-        result_paths = sorted(glob.glob(os.path.join(f'./trial/{digitalHumanName}_{inference_part}/results/', '*.mp4')))
+        if publicId == None:
+            result_paths = sorted(glob.glob(os.path.join(f'./trial/{digitalHumanName}_{inference_part}/results/', '*.mp4')))
+        else:
+            result_paths = sorted(glob.glob(os.path.join(f'./_public_data/{public_value}/trial/{inference_part}/results/', '*.mp4')))
         output_video = result_paths[0].replace('\\', '/')
         video_add_audio(output_video, test_audio, './inference/video_outputs', digitalHumanName, testAudioName, infer_file_path)
         log_status(result_log_path, f"success\n")
