@@ -1020,7 +1020,7 @@ class Trainer(object):
         self.model.eval()
 
         all_preds = []
-        all_preds_depth = []
+        # all_preds_depth = []
 
         with torch.no_grad():
 
@@ -1030,7 +1030,7 @@ class Trainer(object):
                     preds, preds_depth = self.test_step(data)                
                 
                 path = os.path.join(save_path, f'{name}_{i:04d}_rgb.png')
-                path_depth = os.path.join(save_path, f'{name}_{i:04d}_depth.png')
+                # path_depth = os.path.join(save_path, f'{name}_{i:04d}_depth.png')
 
                 #self.log(f"[INFO] saving test image to {path}")
 
@@ -1040,15 +1040,15 @@ class Trainer(object):
                 pred = preds[0].detach().cpu().numpy()
                 pred = (pred * 255).astype(np.uint8)
 
-                pred_depth = preds_depth[0].detach().cpu().numpy()
-                pred_depth = (pred_depth * 255).astype(np.uint8)
+                # pred_depth = preds_depth[0].detach().cpu().numpy()
+                # pred_depth = (pred_depth * 255).astype(np.uint8)
 
                 if write_image:
                     imageio.imwrite(path, pred)
-                    imageio.imwrite(path_depth, pred_depth)
+                    # imageio.imwrite(path_depth, pred_depth)
 
                 all_preds.append(pred)
-                all_preds_depth.append(pred_depth)
+                # all_preds_depth.append(pred_depth)
                 
                 self.shm.buf[:4] = struct.pack('i', len(loader) * loader.batch_size)  # update shared_total
                 self.shm.buf[4:8] = struct.pack('i', i)  # update shared_step
@@ -1056,9 +1056,9 @@ class Trainer(object):
 
         # write video
         all_preds = np.stack(all_preds, axis=0)
-        all_preds_depth = np.stack(all_preds_depth, axis=0)
+        # all_preds_depth = np.stack(all_preds_depth, axis=0)
         imageio.mimwrite(os.path.join(save_path, f'{name}.mp4'), all_preds, fps=25, quality=8, macro_block_size=1)
-        imageio.mimwrite(os.path.join(save_path, f'{name}_depth.mp4'), all_preds_depth, fps=25, quality=8, macro_block_size=1)
+        # imageio.mimwrite(os.path.join(save_path, f'{name}_depth.mp4'), all_preds_depth, fps=25, quality=8, macro_block_size=1)
 
         self.log(f"==> Finished Test.")
     
