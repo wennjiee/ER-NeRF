@@ -9,10 +9,12 @@ from datetime import datetime
 from multiprocessing import shared_memory
 import struct
 # sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-print(os.getcwd())
+# print(os.getcwd())
 from data_utils.hubert_processor import HubertProcessor
 from typing import Dict
+from concurrent.futures import ThreadPoolExecutor
 
+executor = ThreadPoolExecutor(max_workers=2)
 inferring_processes: Dict[str, str] = {}
 
 def setup_logger(id: int, infer_file_path: str) -> logging.Logger:
@@ -108,7 +110,7 @@ def video_add_audio(video_path: str, audio_path: str, output_dir: str, digitalHu
     # ff.run()
     return result
 
-def run_infer(digitalHumanName, testAudioName, inference_part, publicId=None):
+def start(taskId, digitalHumanName, testAudioName, inference_part, publicId=None):
     
     shm = shared_memory.SharedMemory(create=True, size=2 * struct.calcsize('i'))
     shm_name = shm.name
@@ -146,13 +148,13 @@ def run_infer(digitalHumanName, testAudioName, inference_part, publicId=None):
         "250221": "liuchang",
         "250222": "boyinnv"
     }
-    if publicId == None:
+    if publicId == None or publicId == '':
         cmd = f'python ./main.py ./data/{digitalHumanName}/ --workspace ./trial/{digitalHumanName}_{inference_part}/ \
-            -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name}'
+            -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name} --task_id {taskId}'
     elif publicId in public_id_dic:
         public_value = public_id_dic[publicId]
         cmd = f'python ./main.py ./_public_data/{public_value}/datasets --workspace ./_public_data/{public_value}/trial/{inference_part}/ \
-    -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name}'
+    -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name} --task_id {taskId}'
     else:
         log_status(result_log_path, f"fail\n")
         logger.error(f'Failed to Infer, publicId: {publicId} matched error!')
@@ -163,14 +165,34 @@ def run_infer(digitalHumanName, testAudioName, inference_part, publicId=None):
     
     if status == 0:
         if publicId == None:
-            result_paths = sorted(glob.glob(os.path.join(f'./trial/{digitalHumanName}_{inference_part}/results/', '*.mp4')))
+            output_video = os.path.join(f'./trial/{digitalHumanName}_{inference_part}/results/{taskId}.mp4')
+            # result_paths = sorted(glob.glob(os.path.join(f'./trial/{digitalHumanName}_{inference_part}/results/', '*.mp4')))
         else:
-            result_paths = sorted(glob.glob(os.path.join(f'./_public_data/{public_value}/trial/{inference_part}/results/', '*.mp4')))
-        output_video = result_paths[0].replace('\\', '/')
+            output_video = os.path.join(f'./_public_data/{public_value}/trial/{inference_part}/results/{taskId}.mp4')
+            # result_paths = sorted(glob.glob(os.path.join(f'./_public_data/{public_value}/trial/{inference_part}/results/', '*.mp4')))
         video_add_audio(output_video, test_audio, './inference/video_outputs', digitalHumanName, testAudioName, infer_file_path)
         log_status(result_log_path, f"success\n")
         logger.info('[---------------Finished Video ADD Audio---------------]\n')
+        safe_delete(output_video, logger)
     close_logger(logger)
+
+def run_infer(digitalHumanName, testAudioName, inference_part, publicId=None):
+    taskId = str(uuid.uuid4())
+    executor.submit(start, taskId, digitalHumanName, testAudioName, inference_part, publicId)
+    return taskId
+
+def safe_delete(file_path, logger):
+    if os.path.exists(file_path):
+        try:
+            os.chmod(file_path, 0o777)
+            os.remove(file_path)
+            logger.info(f"File {file_path} has been safely deleted.")
+        except PermissionError:
+            logger.error(f"Permission error: cannot delete {file_path}. Check your file permissions.")
+        except Exception as e:
+            logger.error(f"An error occurred while deleting the file: {e}")
+    else:
+        logger.error(f"The file {file_path} does not exist.")
 
 def get_infer_progress(digitalHumanName, testAudioName, inference_part):
     

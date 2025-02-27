@@ -1057,7 +1057,7 @@ class Trainer(object):
         # write video
         all_preds = np.stack(all_preds, axis=0)
         # all_preds_depth = np.stack(all_preds_depth, axis=0)
-        imageio.mimwrite(os.path.join(save_path, f'{name}.mp4'), all_preds, fps=25, quality=8, macro_block_size=1)
+        imageio.mimwrite(os.path.join(save_path, f'{self.opt.task_id}.mp4'), all_preds, fps=25, quality=8, macro_block_size=1)
         # imageio.mimwrite(os.path.join(save_path, f'{name}_depth.mp4'), all_preds_depth, fps=25, quality=8, macro_block_size=1)
 
         self.log(f"==> Finished Test.")

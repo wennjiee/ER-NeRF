@@ -117,7 +117,8 @@ if __name__ == '__main__':
     parser.add_argument('-l', type=int, default=10)
     parser.add_argument('-m', type=int, default=50)
     parser.add_argument('-r', type=int, default=10)
-    parser.add_argument('--shm_name', default='')
+    parser.add_argument('--shm_name', type=str, default='')
+    parser.add_argument('--task_id', type=str, default='')
     opt = parser.parse_args()
     
     shm = shared_memory.SharedMemory(name=opt.shm_name)
