@@ -66,6 +66,7 @@ router = APIRouter(prefix="/nerf")
 #     response = await call_next(request)
 #     return response
 
+
 @router.get("/process")
 async def process(
     train_name: str = Query(..., description="The name of the training data."),
@@ -87,6 +88,7 @@ async def process(
         "log_file": log_file_path
     }
 
+
 @router.get("/train")
 async def train(train_name: str = Query(...), background_tasks: BackgroundTasks = None):
     if train_name in training_processes:
@@ -97,6 +99,7 @@ async def train(train_name: str = Query(...), background_tasks: BackgroundTasks 
 
     background_tasks.add_task(run_train, command, "train.py", log_file_path, train_name)
     return {"message": f"Training started in background for train_name: {train_name}", "log_file": log_file_path}
+
 
 @router.get("/infer")
 async def infer(
@@ -123,6 +126,7 @@ async def infer_progress(
         "message": f"total: {shared_total}, step: {shared_step}"
     }
 
+
 @app.get("/terminate_infer")
 async def terminate_inference(
     digitalHumanName: str = Query(..., description="Name of the digital human model to terminate.")
@@ -130,10 +134,12 @@ async def terminate_inference(
     result = terminate_infer(digitalHumanName)
     return {"message": result}
 
+
 @router.get("/test")
 async def test():
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return {"message": f"Tested at {timestamp}"}
+
 
 app.include_router(router)
 
