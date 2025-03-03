@@ -103,7 +103,7 @@ def video_add_audio(video_path: str, audio_path: str, output_dir: str, digitalHu
     result = os.path.join(output_dir, '{}.{}'.format(digitalHumanName + '_talk_' + testAudioName, _ext_video))
     ff = FFmpeg(
         inputs={video_path: None, audio_path: None},
-        outputs={result: '-y -map 0:v -map 1:a -c:v copy -c:a {} -shortest'.format(_codec)})
+        outputs={result: '-y -map 0:v -map 1:a -c:v copy -c:a {} -shortest -threads 4'.format(_codec)})
     # print(ff.cmd)
     with open(infer_file_path, 'a') as log_file:
         ff.run(stdout=log_file, stderr=log_file)
