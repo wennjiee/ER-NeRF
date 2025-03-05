@@ -5,15 +5,8 @@ import soundfile as sf
 import numpy as np
 
 class HubertProcessor:
-    _instance = None
     
-    def __new__(cls, *args, **kwargs):
-        if cls._instance is None:
-            cls._instance = super(HubertProcessor, cls).__new__(cls, *args, **kwargs)
-            cls._instance.initialize()
-        return cls._instance
-
-    def initialize(self):
+    def __init__(self):
         print("Initializing the System With HuBERT Processor and Model")
         try:
             self.wav2vec2_processor = Wav2Vec2Processor.from_pretrained('../_pretrained/hubert-ls960')
@@ -22,7 +15,6 @@ class HubertProcessor:
         except Exception as e:
             self.wav2vec2_processor = None
             self.hubert_model = None
-            type(self)._instance = None
             print("Initialization Failed")
             raise RuntimeError(f"Failed to initialize models: {e}")
     

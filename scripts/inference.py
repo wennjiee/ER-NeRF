@@ -1,6 +1,8 @@
 import os
+import gc
 import uuid
 import glob
+import torch
 from ffmpy import FFmpeg
 import sys
 import logging
@@ -8,13 +10,11 @@ import subprocess
 from datetime import datetime
 from multiprocessing import shared_memory
 import struct
-# sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-# print(os.getcwd())
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+print(os.getcwd())
 from data_utils.hubert_processor import HubertProcessor
 from typing import Dict
-from concurrent.futures import ThreadPoolExecutor
 
-executor = ThreadPoolExecutor(max_workers=2)
 inferring_processes: Dict[str, str] = {}
 
 def setup_logger(id: int, infer_file_path: str) -> logging.Logger:
@@ -110,76 +110,75 @@ def video_add_audio(video_path: str, audio_path: str, output_dir: str, digitalHu
     # ff.run()
     return result
 
-def start(taskId, digitalHumanName, testAudioName, inference_part, publicId=None):
+# def start(task_id, digitalHumanName, testAudioName, inference_part, publicId=None):
     
-    shm = shared_memory.SharedMemory(create=True, size=2 * struct.calcsize('i'))
-    shm_name = shm.name
-    shm.buf[:4] = struct.pack('i', 100**2) # define total_step
-    shm.buf[4:8] = struct.pack('i', 100**2) # define current_step
+#     shm = shared_memory.SharedMemory(create=True, size=2 * struct.calcsize('i'))
+#     shm_name = shm.name
+#     shm.buf[:4] = struct.pack('i', 100**2) # define total_step
+#     shm.buf[4:8] = struct.pack('i', 100**2) # define current_step
 
-    res_log_dir = './_debug/res/'
-    os.makedirs(res_log_dir, mode=0o777, exist_ok=True)
-    result_log_path = os.path.join(res_log_dir, 'result.txt')
-    log_status(result_log_path, "running|!")
+#     res_log_dir = './_debug/res/'
+#     os.makedirs(res_log_dir, mode=0o777, exist_ok=True)
+#     result_log_path = os.path.join(res_log_dir, 'result.txt')
+#     log_status(result_log_path, "running|!")
 
-    infer_log_dir = './_debug/logs/'
-    os.makedirs(infer_log_dir, mode=0o777, exist_ok=True)
-    infer_file_path = os.path.join(infer_log_dir, 'test.txt')
-    logger = setup_logger(digitalHumanName, infer_file_path)
-    logger.info('[---------------Start Inferring---------------]')
+#     infer_log_dir = './_debug/logs/'
+#     os.makedirs(infer_log_dir, mode=0o777, exist_ok=True)
+#     infer_file_path = os.path.join(infer_log_dir, 'test.txt')
+#     logger = setup_logger(digitalHumanName, infer_file_path)
+#     logger.info('[---------------Start Inferring---------------]')
 
-    try:
-        hubert_processor = HubertProcessor()
-        start_time = datetime.now()
-        test_audio = f'./inference/audio_inputs/{testAudioName}.wav'
-        logger.info('Start process audio')
-        hubert_processor.process_audio(test_audio, logger)
-        end_time = datetime.now()
-        elapsed_time = (end_time - start_time).total_seconds()
-        logger.info(f'Finish Audio Processing at cost {elapsed_time}s')
-    except Exception as e:
-        log_status(result_log_path, f"fail\n")
-        logger.exception(f'Error during audio processing: {e}')
-        close_logger(logger)
-        return
+#     try:
+#         hubert_processor = HubertProcessor()
+#         start_time = datetime.now()
+#         test_audio = f'./inference/audio_inputs/{testAudioName}.wav'
+#         logger.info('Start process audio')
+#         hubert_processor.process_audio(test_audio, logger)
+#         end_time = datetime.now()
+#         elapsed_time = (end_time - start_time).total_seconds()
+#         logger.info(f'Finish Audio Processing at cost {elapsed_time}s')
+#         # if hasattr(hubert_processor, 'model'):
+#         #     hubert_processor.model.to('cpu')
+#         del hubert_processor
+#         torch.cuda.empty_cache()
+#         gc.collect()
+#     except Exception as e:
+#         log_status(result_log_path, f"fail\n")
+#         logger.exception(f'Error during audio processing: {e}')
+#         close_logger(logger)
+#         return
+
+#     public_id_dic: Dict[str, str] = {
+#         "250220": "wangwenjie",
+#         "250221": "boyinnv"
+#     }
+#     if publicId == None or publicId == '':
+#         cmd = f'python ./main.py ./data/{digitalHumanName}/ --workspace ./trial/{digitalHumanName}_{inference_part}/ \
+#             -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name} --task_id {task_id}'
+#     elif publicId in public_id_dic:
+#         public_value = public_id_dic[publicId]
+#         cmd = f'python ./main.py ./_public_data/{public_value}/datasets --workspace ./_public_data/{public_value}/trial/{inference_part}/ \
+#     -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name} --task_id {task_id}'
+#     else:
+#         log_status(result_log_path, f"fail\n")
+#         logger.error(f'Failed to Infer, publicId: {publicId} matched error!')
+#         close_logger(logger)
+#         return
     
-    public_id_dic: Dict[str, str] = {
-        "250220": "wangwenjie",
-        "250221": "liuchang",
-        "250222": "boyinnv"
-    }
-    if publicId == None or publicId == '':
-        cmd = f'python ./main.py ./data/{digitalHumanName}/ --workspace ./trial/{digitalHumanName}_{inference_part}/ \
-            -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name} --task_id {taskId}'
-    elif publicId in public_id_dic:
-        public_value = public_id_dic[publicId]
-        cmd = f'python ./main.py ./_public_data/{public_value}/datasets --workspace ./_public_data/{public_value}/trial/{inference_part}/ \
-    -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name} --task_id {taskId}'
-    else:
-        log_status(result_log_path, f"fail\n")
-        logger.error(f'Failed to Infer, publicId: {publicId} matched error!')
-        close_logger(logger)
-        return
-    
-    status = run_subprocess(cmd, infer_file_path, result_log_path, logger, digitalHumanName)
-    
-    if status == 0:
-        if publicId == None:
-            output_video = os.path.join(f'./trial/{digitalHumanName}_{inference_part}/results/{taskId}.mp4')
-            # result_paths = sorted(glob.glob(os.path.join(f'./trial/{digitalHumanName}_{inference_part}/results/', '*.mp4')))
-        else:
-            output_video = os.path.join(f'./_public_data/{public_value}/trial/{inference_part}/results/{taskId}.mp4')
-            # result_paths = sorted(glob.glob(os.path.join(f'./_public_data/{public_value}/trial/{inference_part}/results/', '*.mp4')))
-        video_add_audio(output_video, test_audio, './inference/video_outputs', digitalHumanName, testAudioName, infer_file_path)
-        log_status(result_log_path, f"success\n")
-        logger.info('[---------------Finished Video ADD Audio---------------]\n')
-        safe_delete(output_video, logger)
-    close_logger(logger)
+#     status = run_subprocess(cmd, infer_file_path, result_log_path, logger, digitalHumanName)
 
-def run_infer(digitalHumanName, testAudioName, inference_part, publicId=None):
-    taskId = str(uuid.uuid4())
-    executor.submit(start, taskId, digitalHumanName, testAudioName, inference_part, publicId)
-    return taskId
+#     if status == 0:
+#         if publicId == None:
+#             output_video = os.path.join(f'./trial/{digitalHumanName}_{inference_part}/results/{task_id}.mp4')
+#             # result_paths = sorted(glob.glob(os.path.join(f'./trial/{digitalHumanName}_{inference_part}/results/', '*.mp4')))
+#         else:
+#             output_video = os.path.join(f'./_public_data/{public_value}/trial/{inference_part}/results/{task_id}.mp4')
+#             # result_paths = sorted(glob.glob(os.path.join(f'./_public_data/{public_value}/trial/{inference_part}/results/', '*.mp4')))
+#         video_add_audio(output_video, test_audio, './inference/video_outputs', digitalHumanName, testAudioName, infer_file_path)
+#         log_status(result_log_path, f"success\n")
+#         logger.info('[---------------Finished Video ADD Audio---------------]\n')
+#         safe_delete(output_video, logger)
+#     close_logger(logger)
 
 def safe_delete(file_path, logger):
     if os.path.exists(file_path):
@@ -212,3 +211,138 @@ def get_infer_progress(digitalHumanName, testAudioName, inference_part):
         return {"error": "Failed to unpack shared memory"}
     
     return shared_total, shared_step
+
+from concurrent.futures import ThreadPoolExecutor
+import threading
+import queue
+import time
+import uuid
+
+executor = ThreadPoolExecutor(max_workers=2)
+task_status = {}
+task_queue = queue.Queue()  # queue.Queue()是线程安全的
+task_lock = threading.Lock()
+
+def start(task_id, digitalHumanName, testAudioName, inference_part, publicId):
+    try:
+        print(f"Task, {task_id} started.")
+        time.sleep(5)
+        print(f"Task, {task_id} finished.")
+    except Exception as e:
+        print(f"Task, {task_id} encountered an error: {e}")
+    finally:
+        print(f"Task, {task_id} is exited.")  # 确保任务退出
+
+def remove_task(task_id):
+    with task_lock:
+        if task_id in task_status and task_status[task_id] == "running":
+            task_status[task_id] = "completed"
+            print(f"✅ Task {task_id} marked as completed.")
+        else:
+            print(f"⚠️ Warning: Task {task_id} not found or already completed!")
+
+def run_infer(digitalHumanName, testAudioName, inference_part, publicId):
+    task_id = str(uuid.uuid4())
+    with task_lock:
+        task_status[task_id] = "waiting"
+        task_queue.put((task_id, digitalHumanName, testAudioName, inference_part, publicId))
+    return {"task_id": task_id, "status": "waiting"}
+
+def process_queue():
+    while True:
+        time.sleep(1)
+        # print('process_th: ', task_queue.queue)
+        print('process_th: ', task_status)
+        with task_lock:
+            running_tasks = sum(1 for status in task_status.values() if status == "running")
+            if running_tasks >= 2:
+                continue
+
+        try:
+            task_id, digitalHumanName, testAudioName, inference_part, publicId = task_queue.get(timeout=1)
+        except queue.Empty:
+            continue
+
+        with task_lock:
+            task_status[task_id] = "running"
+            print(f"process_queue submit {task_id}")
+            future = executor.submit(start, task_id, digitalHumanName, testAudioName, inference_part, publicId)
+            future.add_done_callback(lambda f, task_id=task_id: remove_task(task_id))
+
+queue_thread = threading.Thread(target=process_queue, daemon=True)
+queue_thread.start()
+time.sleep(2)
+print('main', run_infer("zhouyuzhu", "yilian", "torso", "250220"))
+print('main', run_infer("lc10s", "synctalk", "torso", "250220"))
+print('main', run_infer("zhouyuzhu", "synctalk", "torso", "250220"))
+print('main', run_infer("zyz30s", "synctalk", "torso", "250220"))
+print('main', run_infer("lc_128", "yilian", "torso", "250220"))
+# print('main', run_infer("zhouyuzhu2", "synctalk", "torso", "250221"))
+# print('main', run_infer("zyz30s2", "synctalk", "torso", "250221"))
+# print('main', run_infer("lc_1282", "yilian", "torso", "250221"))
+queue_thread.join()
+
+
+# def run_infer(digitalHumanName, testAudioName, inference_part, publicId):
+#     task_id = str(uuid.uuid4())
+
+#     with task_lock:
+#         running_tasks = sum(1 for status in task_status.values() if status == "running")
+        
+#         if running_tasks < 2:
+#             task_status[task_id] = "running"
+#             future = executor.submit(start, task_id, digitalHumanName, testAudioName, inference_part, publicId)
+#             future.add_done_callback(lambda f, task_id=task_id: remove_task(task_id))
+#         else:
+#             task_status[task_id] = "waiting"
+#             task_queue.put((task_id, digitalHumanName, testAudioName, inference_part, publicId))
+
+#     return {"task_id": task_id, "status": task_status[task_id]}
+
+# def process_queue():
+#     while True:
+#         time.sleep(1)  # 避免死循环占用 CPU
+#         # print('process_th: ', task_queue.queue)
+#         # print('process_th: ', task_status)
+#         try:
+#             task_data = task_queue.get(timeout=1)
+#         except queue.Empty:
+#             continue
+
+#         with task_lock:
+#             running_tasks = sum(1 for status in task_status.values() if status == "running")
+#             if running_tasks >= 2:
+#                 task_queue.put(task_data)
+#                 continue
+#             else:
+#                 task_id, digitalHumanName, testAudioName, inference_part, publicId = task_data
+#                 future = executor.submit(start, task_id, digitalHumanName, testAudioName, inference_part, publicId)
+#                 print('process_th submit ', task_id)
+#                 task_status[task_id] = "running"
+#                 future.add_done_callback(lambda f, task_id=task_id: remove_task(task_id))
+
+# def process_queue():
+#     while True:
+#         time.sleep(1)  # 避免死循环占用 CPU
+#         with task_lock:
+
+#             running_tasks = sum(1 for status in task_status.values() if status == "running")
+#             # print(task_status)
+#             print('process_th: ', task_queue.queue)
+#             print('process_th: ', running_tasks)
+#             if running_tasks >= 2:
+#                 continue  # 这里不能 `time.sleep(5)`
+
+#         try:
+#             task_data = task_queue.get(timeout=1)
+#         except queue.Empty:
+#             continue
+
+#         task_id, digitalHumanName, testAudioName, inference_part, publicId = task_data
+
+#         with task_lock:
+#             future = executor.submit(start, task_id, digitalHumanName, testAudioName, inference_part, publicId)
+#             print('process_th submit ', task_id)
+#             task_status[task_id] = "running"
+#             future.add_done_callback(lambda f, task_id=task_id: remove_task(task_id))
+

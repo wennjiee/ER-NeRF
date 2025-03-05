@@ -18,12 +18,11 @@ async def infer(
     testAudioName: str = Query(..., description="Name of the test audio file."),
     inference_part: str = Query(..., description="Part for inference (e.g., 'head')."),
     publicId: str = Query(None, description="optional"),
-    background_tasks: BackgroundTasks = None,
 ):
-    background_tasks.add_task(run_infer, digitalHumanName, testAudioName, inference_part, publicId)
+    run_infer(digitalHumanName, testAudioName, inference_part, publicId)
     return {
         "message": f"Inference started in background with digitalHumanName: {digitalHumanName}, \
-            testAudioName: {testAudioName}, inference_part: {inference_part}",
+            testAudioName: {testAudioName}, inference_part: {inference_part}, publicId: {publicId}",
     }
 
 @router.get("/infer_progress")
