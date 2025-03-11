@@ -1,19 +1,18 @@
 import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+print('载入inference.py', os.getcwd())
 import gc
 import uuid
-import glob
 import torch
-from ffmpy import FFmpeg
-import sys
+import struct
 import logging
 import subprocess
+from typing import Dict
+from ffmpy import FFmpeg
 from datetime import datetime
 from multiprocessing import shared_memory
-import struct
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-print(os.getcwd())
 from data_utils.hubert_processor import HubertProcessor
-from typing import Dict
 
 inferring_processes: Dict[str, str] = {}
 
@@ -110,75 +109,79 @@ def video_add_audio(video_path: str, audio_path: str, output_dir: str, digitalHu
     # ff.run()
     return result
 
-# def start(task_id, digitalHumanName, testAudioName, inference_part, publicId=None):
+# unknow error stopped
+def start_inference(task_id, digitalHumanName, testAudioName, inference_part, publicId, status_queue):
     
-#     shm = shared_memory.SharedMemory(create=True, size=2 * struct.calcsize('i'))
-#     shm_name = shm.name
-#     shm.buf[:4] = struct.pack('i', 100**2) # define total_step
-#     shm.buf[4:8] = struct.pack('i', 100**2) # define current_step
+    shm = shared_memory.SharedMemory(create=True, size=2 * struct.calcsize('i'))
+    shm_name = shm.name
+    shm.buf[:4] = struct.pack('i', 100**2) # define total_step
+    shm.buf[4:8] = struct.pack('i', 100**2) # define current_step
 
-#     res_log_dir = './_debug/res/'
-#     os.makedirs(res_log_dir, mode=0o777, exist_ok=True)
-#     result_log_path = os.path.join(res_log_dir, 'result.txt')
-#     log_status(result_log_path, "running|!")
+    res_log_dir = './_debug/res/'
+    os.makedirs(res_log_dir, mode=0o777, exist_ok=True)
+    result_log_path = os.path.join(res_log_dir, 'result.txt')
+    log_status(result_log_path, "running|!")
 
-#     infer_log_dir = './_debug/logs/'
-#     os.makedirs(infer_log_dir, mode=0o777, exist_ok=True)
-#     infer_file_path = os.path.join(infer_log_dir, 'test.txt')
-#     logger = setup_logger(digitalHumanName, infer_file_path)
-#     logger.info('[---------------Start Inferring---------------]')
+    infer_log_dir = './_debug/logs/'
+    os.makedirs(infer_log_dir, mode=0o777, exist_ok=True)
+    infer_file_path = os.path.join(infer_log_dir, 'test.txt')
+    logger = setup_logger(digitalHumanName, infer_file_path)
+    logger.info('[---------------Start Inferring---------------]')
 
-#     try:
-#         hubert_processor = HubertProcessor()
-#         start_time = datetime.now()
-#         test_audio = f'./inference/audio_inputs/{testAudioName}.wav'
-#         logger.info('Start process audio')
-#         hubert_processor.process_audio(test_audio, logger)
-#         end_time = datetime.now()
-#         elapsed_time = (end_time - start_time).total_seconds()
-#         logger.info(f'Finish Audio Processing at cost {elapsed_time}s')
-#         # if hasattr(hubert_processor, 'model'):
-#         #     hubert_processor.model.to('cpu')
-#         del hubert_processor
-#         torch.cuda.empty_cache()
-#         gc.collect()
-#     except Exception as e:
-#         log_status(result_log_path, f"fail\n")
-#         logger.exception(f'Error during audio processing: {e}')
-#         close_logger(logger)
-#         return
+    try:
+        hubert_processor = HubertProcessor()
+        start_time = datetime.now()
+        test_audio = f'./inference/audio_inputs/{testAudioName}.wav'
+        logger.info('Start process audio')
+        hubert_processor.process_audio(test_audio, logger)
+        end_time = datetime.now()
+        elapsed_time = (end_time - start_time).total_seconds()
+        logger.info(f'Finish Audio Processing at cost {elapsed_time}s')
+        # if hasattr(hubert_processor, 'model'):
+        #     hubert_processor.model.to('cpu')
+        # del hubert_processor
+        # torch.cuda.empty_cache()
+        # gc.collect()
+    except Exception as e:
+        log_status(result_log_path, f"fail\n")
+        logger.exception(f'Error during audio processing: {e}')
+        close_logger(logger)
+        status_queue.put((task_id, "failed"))
+        return
 
-#     public_id_dic: Dict[str, str] = {
-#         "250220": "wangwenjie",
-#         "250221": "boyinnv"
-#     }
-#     if publicId == None or publicId == '':
-#         cmd = f'python ./main.py ./data/{digitalHumanName}/ --workspace ./trial/{digitalHumanName}_{inference_part}/ \
-#             -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name} --task_id {task_id}'
-#     elif publicId in public_id_dic:
-#         public_value = public_id_dic[publicId]
-#         cmd = f'python ./main.py ./_public_data/{public_value}/datasets --workspace ./_public_data/{public_value}/trial/{inference_part}/ \
-#     -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name} --task_id {task_id}'
-#     else:
-#         log_status(result_log_path, f"fail\n")
-#         logger.error(f'Failed to Infer, publicId: {publicId} matched error!')
-#         close_logger(logger)
-#         return
+    public_id_dic: Dict[str, str] = {
+        "250220": "wangwenjie",
+        "250221": "boyinnv"
+    }
+    if publicId == None or publicId == '':
+        cmd = f'python ./main.py ./data/{digitalHumanName}/ --workspace ./trial/{digitalHumanName}_{inference_part}/ \
+            -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name} --task_id {task_id}'
+    elif publicId in public_id_dic:
+        public_value = public_id_dic[publicId]
+        cmd = f'python ./main.py ./_public_data/{public_value}/datasets --workspace ./_public_data/{public_value}/trial/{inference_part}/ \
+    -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name} --task_id {task_id}'
+    else:
+        log_status(result_log_path, f"fail\n")
+        logger.error(f'Failed to Infer, publicId: {publicId} matched error!')
+        close_logger(logger)
+        status_queue.put((task_id, "failed"))
+        return
     
-#     status = run_subprocess(cmd, infer_file_path, result_log_path, logger, digitalHumanName)
+    status = run_subprocess(cmd, infer_file_path, result_log_path, logger, digitalHumanName)
 
-#     if status == 0:
-#         if publicId == None:
-#             output_video = os.path.join(f'./trial/{digitalHumanName}_{inference_part}/results/{task_id}.mp4')
-#             # result_paths = sorted(glob.glob(os.path.join(f'./trial/{digitalHumanName}_{inference_part}/results/', '*.mp4')))
-#         else:
-#             output_video = os.path.join(f'./_public_data/{public_value}/trial/{inference_part}/results/{task_id}.mp4')
-#             # result_paths = sorted(glob.glob(os.path.join(f'./_public_data/{public_value}/trial/{inference_part}/results/', '*.mp4')))
-#         video_add_audio(output_video, test_audio, './inference/video_outputs', digitalHumanName, testAudioName, infer_file_path)
-#         log_status(result_log_path, f"success\n")
-#         logger.info('[---------------Finished Video ADD Audio---------------]\n')
-#         safe_delete(output_video, logger)
-#     close_logger(logger)
+    if status == 0:
+        if publicId == None:
+            output_video = os.path.join(f'./trial/{digitalHumanName}_{inference_part}/results/{task_id}.mp4')
+            # result_paths = sorted(glob.glob(os.path.join(f'./trial/{digitalHumanName}_{inference_part}/results/', '*.mp4')))
+        else:
+            output_video = os.path.join(f'./_public_data/{public_value}/trial/{inference_part}/results/{task_id}.mp4')
+            # result_paths = sorted(glob.glob(os.path.join(f'./_public_data/{public_value}/trial/{inference_part}/results/', '*.mp4')))
+        video_add_audio(output_video, test_audio, './inference/video_outputs', digitalHumanName, testAudioName, infer_file_path)
+        log_status(result_log_path, f"success\n")
+        logger.info('[---------------Finished Video ADD Audio---------------]\n')
+        safe_delete(output_video, logger)
+    close_logger(logger)
+    status_queue.put((task_id, "completed"))
 
 def safe_delete(file_path, logger):
     if os.path.exists(file_path):
@@ -212,137 +215,166 @@ def get_infer_progress(digitalHumanName, testAudioName, inference_part):
     
     return shared_total, shared_step
 
-from concurrent.futures import ThreadPoolExecutor
-import threading
-import queue
 import time
 import uuid
+import threading
+import queue
+import multiprocessing
 
-executor = ThreadPoolExecutor(max_workers=2)
-task_status = {}
-task_queue = queue.Queue()  # queue.Queue()是线程安全的
+MAX_WORKERS = 2
+TOTAL_CPU_CORES = 8
+tasks = {}  # 统一维护任务状态和进程对象
+task_queue = queue.Queue()
 task_lock = threading.Lock()
+status_update_queue = multiprocessing.Queue()
 
-def start(task_id, digitalHumanName, testAudioName, inference_part, publicId):
+import time
+import threading
+import psutil
+from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetMemoryInfo, nvmlShutdown
+
+def init_system():
+    nvmlInit()
+    print("GPU初始化完毕 Starting the system...")
+    queue_thread = threading.Thread(target=process_consumer, daemon=True)
+    queue_thread.start()
+    print("系统初始化完毕 Starting the system...")
+
+def get_gpu_usage():
     try:
-        print(f"Task, {task_id} started.")
-        time.sleep(5)
-        print(f"Task, {task_id} finished.")
+        gpu_handle = nvmlDeviceGetHandleByIndex(0)
+        gpu_mem_info = nvmlDeviceGetMemoryInfo(gpu_handle)
+        gpu_used = gpu_mem_info.used / (1024 ** 2)  # 转换为 MB
+        gpu_total = gpu_mem_info.total / (1024 ** 2)  # 转换为 MB
+        gpu_free = gpu_mem_info.free / (1024 ** 2)  # 转换为 MB，未使用的显存
+        gpu_util = gpu_used * 100 / gpu_total  # 使用率
+        return gpu_free
     except Exception as e:
-        print(f"Task, {task_id} encountered an error: {e}")
-    finally:
-        print(f"Task, {task_id} is exited.")  # 确保任务退出
+        print(f"获取 GPU 使用情况时出错: {e}")
+        return -1
 
-def remove_task(task_id):
-    with task_lock:
-        if task_id in task_status and task_status[task_id] == "running":
-            task_status[task_id] = "completed"
-            print(f"✅ Task {task_id} marked as completed.")
-        else:
-            print(f"⚠️ Warning: Task {task_id} not found or already completed!")
+def print_process_tree(pid=None, level=0):
+    """ 递归打印进程树 """
+    if pid is None:
+        pid = os.getpid()  # 获取当前进程 ID
+    try:
+        process = psutil.Process(pid)
+        indent = " " * (level * 4)
+        print(f"{indent}└── {process.name()} (PID={process.pid})")
+        for child in process.children(recursive=True):  # 递归获取子进程
+            print_process_tree(child.pid, level + 1)
+    except psutil.NoSuchProcess:
+        pass
 
-def run_infer(digitalHumanName, testAudioName, inference_part, publicId):
+def get_process_usage(pid=None):
+    if pid is None:
+        pid = psutil.Process().pid  # 默认从当前进程开始
+
+    total_cpu = 0.0
+    total_memory = 0.0
+
+    try:
+        process = psutil.Process(pid)
+        # 获取当前进程的 CPU 使用率和内存使用情况
+        total_cpu += process.cpu_percent(interval=0.5)  # interval=1.0 是为了获取正确的 CPU 使用率
+        total_memory += process.memory_info().rss / (1024 ** 2)  # 以 MB 为单位
+
+        # 获取当前进程的子进程
+        for child in process.children():
+            child_cpu, child_memory = get_process_usage(child.pid)  # 递归获取子进程的 CPU 和内存
+            total_cpu += child_cpu
+            total_memory += child_memory
+
+    except psutil.NoSuchProcess:
+        pass
+    except psutil.AccessDenied:
+        pass
+    cpu_cores_usage = total_cpu / TOTAL_CPU_CORES
+    return cpu_cores_usage, total_memory
+
+def process_consumer():
+    while True:
+        time.sleep(1)
+        print("\n📌 当前进程树：")
+        print_process_tree()
+        
+        # 处理任务完成的通知，进程间通信
+        while not status_update_queue.empty():
+            task_id, status = status_update_queue.get(timeout=0.5)
+            with task_lock:
+                if task_id in tasks:
+                    tasks[task_id]["status"] = status  # 更新任务状态
+                    process = tasks[task_id].get("process")
+                    if status in ["completed", "failed", "terminated"]:
+                        if process:
+                            if process.is_alive():
+                                print(f"⚠️ 任务 {task_id} 仍在运行，强制终止...")
+                                process.terminate()
+                                process.join()
+                            print(f"✅ 任务 {task_id} 的进程已正常退出 (exitcode={process.exitcode}).")
+                        del tasks[task_id]
+                        gc.collect()
+                        print(f"🗑️ 任务 {task_id} 已从任务列表中删除。")
+ 
+        # 控制最大并发任务数
+        with task_lock:
+            print('tasks = ', tasks)
+            print('pid = ', psutil.Process().pid)
+            gpu_free = get_gpu_usage()
+            cpu_usage, total_memory  = get_process_usage()
+            system_usage = {
+                'cpu_usage': cpu_usage,
+                'memory_usage': total_memory,
+                'gpu_free': gpu_free,
+            }
+            
+            print(f"CPU核心使用: {system_usage['cpu_usage']:.2f}%")
+            print(f"RAM内存占用: {system_usage['memory_usage']:.2f}MB")
+            print(f"未用显存: {system_usage['gpu_free']:.2f}MB")
+            
+            running_tasks = sum(1 for tmp in tasks.values() if tmp["status"] == "running")
+            if running_tasks >= MAX_WORKERS:
+                continue  # 任务已满，不需要获取系统使用情况
+
+            if system_usage['cpu_usage'] > 70.0 or system_usage['memory_usage'] > 12000.0 or system_usage['gpu_free'] < 2000.0:
+                continue  # 系统资源占用过高，不启动新任务
+
+        try:
+            task_id, digitalHumanName, testAudioName, inference_part, publicId = task_queue.get(timeout=0.5)
+        except queue.Empty:
+            continue  # 没有任务时继续等待
+
+        with task_lock:
+            tasks[task_id] = {"status": "running", "process": None}
+            # 创建进程执行任务，并传入 `status_update_queue`
+            p = multiprocessing.Process(target=start_inference, \
+                                        args=(task_id, digitalHumanName, testAudioName, inference_part, publicId, status_update_queue))
+            tasks[task_id]["process"] = p
+            print(f"Processing task {task_id}")
+            print('🟢 Updated tasks = ', tasks)
+        p.start()
+
+def submit_task(digitalHumanName, testAudioName, inference_part, publicId):
     task_id = str(uuid.uuid4())
     with task_lock:
-        task_status[task_id] = "waiting"
+        tasks[task_id] = {"status": "waiting", 
+                          "process": None}  # 任务初始化
+        print(f"🟢 Added task {task_id}, current tasks: {tasks}")
         task_queue.put((task_id, digitalHumanName, testAudioName, inference_part, publicId))
     return {"task_id": task_id, "status": "waiting"}
 
-def process_queue():
-    while True:
-        time.sleep(1)
-        # print('process_th: ', task_queue.queue)
-        print('process_th: ', task_status)
-        with task_lock:
-            running_tasks = sum(1 for status in task_status.values() if status == "running")
-            if running_tasks >= 2:
-                continue
-
-        try:
-            task_id, digitalHumanName, testAudioName, inference_part, publicId = task_queue.get(timeout=1)
-        except queue.Empty:
-            continue
-
-        with task_lock:
-            task_status[task_id] = "running"
-            print(f"process_queue submit {task_id}")
-            future = executor.submit(start, task_id, digitalHumanName, testAudioName, inference_part, publicId)
-            future.add_done_callback(lambda f, task_id=task_id: remove_task(task_id))
-
-queue_thread = threading.Thread(target=process_queue, daemon=True)
-queue_thread.start()
-time.sleep(2)
-print('main', run_infer("zhouyuzhu", "yilian", "torso", "250220"))
-print('main', run_infer("lc10s", "synctalk", "torso", "250220"))
-print('main', run_infer("zhouyuzhu", "synctalk", "torso", "250220"))
-print('main', run_infer("zyz30s", "synctalk", "torso", "250220"))
-print('main', run_infer("lc_128", "yilian", "torso", "250220"))
-# print('main', run_infer("zhouyuzhu2", "synctalk", "torso", "250221"))
-# print('main', run_infer("zyz30s2", "synctalk", "torso", "250221"))
-# print('main', run_infer("lc_1282", "yilian", "torso", "250221"))
-queue_thread.join()
-
-
-# def run_infer(digitalHumanName, testAudioName, inference_part, publicId):
-#     task_id = str(uuid.uuid4())
-
-#     with task_lock:
-#         running_tasks = sum(1 for status in task_status.values() if status == "running")
-        
-#         if running_tasks < 2:
-#             task_status[task_id] = "running"
-#             future = executor.submit(start, task_id, digitalHumanName, testAudioName, inference_part, publicId)
-#             future.add_done_callback(lambda f, task_id=task_id: remove_task(task_id))
-#         else:
-#             task_status[task_id] = "waiting"
-#             task_queue.put((task_id, digitalHumanName, testAudioName, inference_part, publicId))
-
-#     return {"task_id": task_id, "status": task_status[task_id]}
-
-# def process_queue():
-#     while True:
-#         time.sleep(1)  # 避免死循环占用 CPU
-#         # print('process_th: ', task_queue.queue)
-#         # print('process_th: ', task_status)
-#         try:
-#             task_data = task_queue.get(timeout=1)
-#         except queue.Empty:
-#             continue
-
-#         with task_lock:
-#             running_tasks = sum(1 for status in task_status.values() if status == "running")
-#             if running_tasks >= 2:
-#                 task_queue.put(task_data)
-#                 continue
-#             else:
-#                 task_id, digitalHumanName, testAudioName, inference_part, publicId = task_data
-#                 future = executor.submit(start, task_id, digitalHumanName, testAudioName, inference_part, publicId)
-#                 print('process_th submit ', task_id)
-#                 task_status[task_id] = "running"
-#                 future.add_done_callback(lambda f, task_id=task_id: remove_task(task_id))
-
-# def process_queue():
-#     while True:
-#         time.sleep(1)  # 避免死循环占用 CPU
-#         with task_lock:
-
-#             running_tasks = sum(1 for status in task_status.values() if status == "running")
-#             # print(task_status)
-#             print('process_th: ', task_queue.queue)
-#             print('process_th: ', running_tasks)
-#             if running_tasks >= 2:
-#                 continue  # 这里不能 `time.sleep(5)`
-
-#         try:
-#             task_data = task_queue.get(timeout=1)
-#         except queue.Empty:
-#             continue
-
-#         task_id, digitalHumanName, testAudioName, inference_part, publicId = task_data
-
-#         with task_lock:
-#             future = executor.submit(start, task_id, digitalHumanName, testAudioName, inference_part, publicId)
-#             print('process_th submit ', task_id)
-#             task_status[task_id] = "running"
-#             future.add_done_callback(lambda f, task_id=task_id: remove_task(task_id))
-
+def terminate_task(task_id):
+    with task_lock:
+        if task_id in tasks and tasks[task_id]["status"] == "running":
+            process = tasks[task_id]["process"]
+            if process and process.is_alive():
+                process.terminate()
+                process.join()
+                tasks[task_id]["status"] = "terminated"
+                tasks[task_id]["process"] = None  # 清理进程
+                print(f"❌ Task {task_id} has been terminated.")
+                return {"task_id": task_id, "status": "terminated"}
+        elif task_id in tasks:
+            return {"task_id": task_id, "status": tasks[task_id]["status"]}
+        else:
+            return {"error": "Task not found"}
