@@ -14,7 +14,7 @@ try:
 except AttributeError as e:
     print('Info. This pytorch version is not support with tf32.')
     
-if __name__ == '__main__':
+def main(command):
 
     parser = argparse.ArgumentParser()
     parser.add_argument('path', type=str)
@@ -120,7 +120,7 @@ if __name__ == '__main__':
     parser.add_argument('-r', type=int, default=10)
     parser.add_argument('--shm_name', type=str, default='')
     parser.add_argument('--task_id', type=str, default='')
-    opt = parser.parse_args()
+    opt = parser.parse_args(args=command)
     
     shm = shared_memory.SharedMemory(name=opt.shm_name)
     
