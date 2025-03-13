@@ -1052,6 +1052,7 @@ class Trainer(object):
                 
                 self.shm.buf[:4] = struct.pack('i', len(loader) * loader.batch_size)  # update shared_total
                 self.shm.buf[4:8] = struct.pack('i', i)  # update shared_step
+                # pbar.update(loader.batch_size)
 
 
         # write video
