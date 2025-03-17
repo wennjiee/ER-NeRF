@@ -18,14 +18,14 @@ router = APIRouter(prefix="/nerf")
 async def infer(
     digitalHumanName: str = Query(..., description="Name of the digital human model."),
     testAudioName: str = Query(..., description="Name of the test audio file."),
-    inference_part: str = Query(..., description="Part for inference (e.g., 'head')."),
+    inferencePart: str = Query(..., description="Part for inference (e.g., 'head')."),
     publicId: str = Query(None, description="optional"),
     background_tasks: BackgroundTasks = None
 ):
-    background_tasks.add_task(submit_task, digitalHumanName, testAudioName, inference_part, publicId)
+    background_tasks.add_task(submit_task, digitalHumanName, testAudioName, inferencePart, publicId)
     return {
         "message": f"Inference started in background with digitalHumanName: {digitalHumanName}, \
-            testAudioName: {testAudioName}, inference_part: {inference_part}, publicId: {publicId}",
+            testAudioName: {testAudioName}, inferencePart: {inferencePart}, publicId: {publicId}",
     }
 
 @router.get("/test")
