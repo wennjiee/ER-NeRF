@@ -13,6 +13,8 @@ from ffmpy import FFmpeg
 from datetime import datetime
 from multiprocessing import shared_memory
 from data_utils.hubert_processor import HubertProcessor
+from main import main
+import contextlib
 
 inferring_processes: Dict[str, str] = {}
 
@@ -38,26 +40,6 @@ def log_status(res_file_path, status):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with open(res_file_path, "a") as log_file:
         log_file.write(f"{timestamp}|!{status}")
-
-def run_subprocess(cmd, log_file_path, result_log_path, logger, digitalHumanName):
-    try:
-        logger.info(f"Start inference for \ncommand = {cmd}")
-        file_path = os.path.abspath(log_file_path)
-        with open(file_path, "a") as log_file:
-            process = subprocess.Popen(cmd, stdout=log_file, stderr=log_file, text=True, bufsize=1)
-            inferring_processes[digitalHumanName] = process
-            process.wait()
-        if process.returncode == 0:
-            logger.info(f' ===== Finish Inference Successfully =====')
-            return 0
-        else:
-            log_status(result_log_path, f"fail\n")
-            logger.error(f'Failed to Infer with return code {process.returncode}')
-            return -1
-    except Exception as e:
-        log_status(result_log_path, f"fail\n")
-        logger.error(f'Failed to Infer, Exception is : {e}')
-        return -2
 
 def terminate_infer(digitalHumanName: str):
     res_log_dir = './_debug/res/'
@@ -126,75 +108,104 @@ def start_inference(task_id, digitalHumanName, testAudioName, inference_part, pu
     os.makedirs(infer_log_dir, mode=0o777, exist_ok=True)
     infer_file_path = os.path.join(infer_log_dir, 'test.txt')
     logger = setup_logger(digitalHumanName, infer_file_path)
-    logger.info('[---------------Start Inferring---------------]')
+    logger.info(f'[---------------Start Processing with PID-{os.getpid()}---------------]')
 
     try:
-        hubert_processor = HubertProcessor()
         start_time = datetime.now()
         test_audio = f'./inference/audio_inputs/{testAudioName}.wav'
-        logger.info('Start process audio')
+        logger.info('Start audio processing')
+        hubert_processor = HubertProcessor()
         hubert_processor.process_audio(test_audio, logger)
         end_time = datetime.now()
         elapsed_time = (end_time - start_time).total_seconds()
         logger.info(f'Finish Audio Processing at cost {elapsed_time}s')
-        # if hasattr(hubert_processor, 'model'):
-        #     hubert_processor.model.to('cpu')
-        # del hubert_processor
-        # torch.cuda.empty_cache()
-        # gc.collect()
     except Exception as e:
         log_status(result_log_path, f"fail\n")
-        logger.exception(f'Error during audio processing: {e}')
+        logger.exception(f'Error occurred during audio processing: {e}')
         close_logger(logger)
         status_queue.put((task_id, "failed"))
         return
 
-    public_id_dic: Dict[str, str] = {
+    PUBLILC_ID_DIC: Dict[str, str] = {
         "250220": "wangwenjie",
         "250221": "boyinnv"
     }
     if publicId == None or publicId == '':
         cmd = f'python ./main.py ./data/{digitalHumanName}/ --workspace ./trial/{digitalHumanName}_{inference_part}/ \
             -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name} --task_id {task_id}'
-    elif publicId in public_id_dic:
-        public_value = public_id_dic[publicId]
+        command = [
+            f"./data/{digitalHumanName}/",
+            "--workspace", f"./trial/{digitalHumanName}_{inference_part}/",
+            "-O", 
+            "--test", 
+            "--test_train",
+            "--aud", f"./inference/audio_inputs/{testAudioName}_hu.npy",
+            "--shm_name", shm_name,
+            "--task_id", str(task_id)
+        ]
+    elif publicId in PUBLILC_ID_DIC:
+        public_value = PUBLILC_ID_DIC[publicId]
         cmd = f'python ./main.py ./_public_data/{public_value}/datasets --workspace ./_public_data/{public_value}/trial/{inference_part}/ \
-    -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name} --task_id {task_id}'
+            -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name} --task_id {task_id}'
+        command = [
+            f"./_public_data/{public_value}/datasets",
+            "--workspace", f"./_public_data/{public_value}/trial/{inference_part}/",
+            "-O", 
+            "--test", 
+            "--test_train",
+            "--aud", f"./inference/audio_inputs/{testAudioName}_hu.npy",
+            "--shm_name", shm_name,
+            "--task_id", str(task_id)
+        ]
     else:
         log_status(result_log_path, f"fail\n")
-        logger.error(f'Failed to Infer, publicId: {publicId} matched error!')
+        logger.error(f'Failed to infer, publicId: {publicId} matched error!')
         close_logger(logger)
         status_queue.put((task_id, "failed"))
         return
     
-    status = run_subprocess(cmd, infer_file_path, result_log_path, logger, digitalHumanName)
+    try:
+        with open(infer_file_path, "a") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+            main(command)
+        logger.info('[---------------Finished Video Inference---------------]')
+    except Exception as e:
+        log_status(result_log_path, f"fail\n")
+        logger.error(f'Failed to Infer, Exception is : {e}')
+        status_queue.put((task_id, "failed"))
+        return
 
-    if status == 0:
-        if publicId == None:
-            output_video = os.path.join(f'./trial/{digitalHumanName}_{inference_part}/results/{task_id}.mp4')
-            # result_paths = sorted(glob.glob(os.path.join(f'./trial/{digitalHumanName}_{inference_part}/results/', '*.mp4')))
-        else:
-            output_video = os.path.join(f'./_public_data/{public_value}/trial/{inference_part}/results/{task_id}.mp4')
-            # result_paths = sorted(glob.glob(os.path.join(f'./_public_data/{public_value}/trial/{inference_part}/results/', '*.mp4')))
+    if publicId == None:
+        output_video = os.path.join(f'./trial/{digitalHumanName}_{inference_part}/results/{task_id}.mp4')
+        # result_paths = sorted(glob.glob(os.path.join(f'./trial/{digitalHumanName}_{inference_part}/results/', '*.mp4')))
+    else:
+        output_video = os.path.join(f'./_public_data/{public_value}/trial/{inference_part}/results/{task_id}.mp4')
+        # result_paths = sorted(glob.glob(os.path.join(f'./_public_data/{public_value}/trial/{inference_part}/results/', '*.mp4')))
+    
+    try:
         video_add_audio(output_video, test_audio, './inference/video_outputs', digitalHumanName, testAudioName, infer_file_path)
         log_status(result_log_path, f"success\n")
-        logger.info('[---------------Finished Video ADD Audio---------------]\n')
+        logger.info('[---------------Finished Video ADD Audio---------------]')
+        status_queue.put((task_id, "completed"))
+    except Exception as e:
+        log_status(result_log_path, f"fail\n")
+        logger.info('[---------------Failed to add audio into video---------------]')
+        status_queue.put((task_id, "failed"))
+    finally:
         safe_delete(output_video, logger)
-    close_logger(logger)
-    status_queue.put((task_id, "completed"))
+        close_logger(logger)
 
 def safe_delete(file_path, logger):
     if os.path.exists(file_path):
         try:
             os.chmod(file_path, 0o777)
             os.remove(file_path)
-            logger.info(f"File {file_path} has been safely deleted.")
+            logger.info(f"File {file_path} has been safely deleted.\n")
         except PermissionError:
-            logger.error(f"Permission error: cannot delete {file_path}. Check your file permissions.")
+            logger.error(f"Permission error: cannot delete {file_path}. Check your file permissions.\n")
         except Exception as e:
-            logger.error(f"An error occurred while deleting the file: {e}")
+            logger.error(f"An error occurred while deleting the file: {e}\n")
     else:
-        logger.error(f"The file {file_path} does not exist.")
+        logger.error(f"The file {file_path} does not exist.\n")
 
 def get_infer_progress(digitalHumanName, testAudioName, inference_part):
     
@@ -255,6 +266,7 @@ def get_gpu_usage():
 
 def print_process_tree(pid=None, level=0):
     """ 递归打印进程树 """
+    print("\n📌 当前进程树：")
     if pid is None:
         pid = os.getpid()  # 获取当前进程 ID
     try:
@@ -295,7 +307,6 @@ def get_process_usage(pid=None):
 def process_consumer():
     while True:
         time.sleep(1)
-        print("\n📌 当前进程树：")
         print_process_tree()
         
         # 处理任务完成的通知，进程间通信
