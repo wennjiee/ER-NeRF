@@ -266,7 +266,6 @@ def get_gpu_usage():
 
 def print_process_tree(pid=None, level=0):
     """ 递归打印进程树 """
-    print("\n📌 当前进程树：")
     if pid is None:
         pid = os.getpid()  # 获取当前进程 ID
     try:
@@ -307,6 +306,7 @@ def get_process_usage(pid=None):
 def process_consumer():
     while True:
         time.sleep(1)
+        print("\n📌 当前进程树：")
         print_process_tree()
         
         # 处理任务完成的通知，进程间通信
