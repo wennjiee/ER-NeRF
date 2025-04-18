@@ -676,8 +676,8 @@ class Trainer(object):
         self.log_ptr = None
         if self.workspace is not None:
             os.makedirs(self.workspace, exist_ok=True)        
-            self.log_path = os.path.join(workspace, f"log_{self.name}.txt")
-            self.log_ptr = open(self.log_path, "a+")
+            # self.log_path = os.path.join(workspace, f"log_{self.name}.txt")
+            # self.log_ptr = open(self.log_path, "a+")
 
             self.ckpt_path = os.path.join(self.workspace, 'checkpoints')
             self.best_path = f"{self.ckpt_path}/{self.name}.pth"
