@@ -32,6 +32,7 @@ import imageio
 import lpips
 from multiprocessing import shared_memory
 import struct
+import subprocess
 
 def custom_meshgrid(*args):
     # ref: https://pytorch.org/docs/stable/generated/torch.meshgrid.html?highlight=meshgrid#torch.meshgrid
@@ -1004,24 +1005,23 @@ class Trainer(object):
         self.evaluate_one_epoch(loader, name)
         self.use_tensorboardX = use_tensorboardX
 
-    def test(self, loader, save_path=None, name=None, write_image=False):
-
+    def test(self, loader, save_path=None):
+        
         if save_path is None:
-            save_path = os.path.join(self.workspace, 'results')
-
-        if name is None:
-            name = f'{self.name}_ep{self.epoch:04d}'
+            save_path = os.path.join(self.workspace, 'results', self.opt.task_id)
 
         os.makedirs(save_path, exist_ok=True)
-        
+        os.chmod(save_path, mode=0o777)
         self.log(f"==> Start Test, save results to {save_path}")
 
         pbar = tqdm.tqdm(total=len(loader) * loader.batch_size, bar_format='{percentage:3.0f}% {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
         self.model.eval()
 
+        # save to imgs per 4500 frames, which is about 3min 
+        SAVE_INTERNAL = 1500
+        temp_videos = []
         all_preds = []
-        # all_preds_depth = []
-
+        temp_video_index = 0
         with torch.no_grad():
 
             for i, data in enumerate(loader):
@@ -1029,40 +1029,43 @@ class Trainer(object):
                 with torch.cuda.amp.autocast(enabled=self.fp16):
                     preds, preds_depth = self.test_step(data)                
                 
-                path = os.path.join(save_path, f'{name}_{i:04d}_rgb.png')
-                # path_depth = os.path.join(save_path, f'{name}_{i:04d}_depth.png')
-
-                #self.log(f"[INFO] saving test image to {path}")
-
                 if self.opt.color_space == 'linear':
                     preds = linear_to_srgb(preds)
 
                 pred = preds[0].detach().cpu().numpy()
                 pred = (pred * 255).astype(np.uint8)
 
-                # pred_depth = preds_depth[0].detach().cpu().numpy()
-                # pred_depth = (pred_depth * 255).astype(np.uint8)
-
-                if write_image:
-                    imageio.imwrite(path, pred)
-                    # imageio.imwrite(path_depth, pred_depth)
-
                 all_preds.append(pred)
-                # all_preds_depth.append(pred_depth)
+                if (i + 1) % SAVE_INTERNAL == 0 or i == len(loader) - 1:
+                    temp_video_path = os.path.abspath(os.path.join(save_path, f'temp_{temp_video_index}.mp4'))
+                    all_preds = np.stack(all_preds, axis=0)
+                    imageio.mimwrite(temp_video_path, all_preds, fps=25, quality=8, macro_block_size=1, ffmpeg_params=['-threads', '4'])
+                    temp_videos.append(temp_video_path)
+                    all_preds = []
+                    temp_video_index += 1
                 
                 self.shm.buf[:4] = struct.pack('i', len(loader) * loader.batch_size)  # update shared_total
                 self.shm.buf[4:8] = struct.pack('i', i)  # update shared_step
                 # pbar.update(loader.batch_size)
-
-
-        # write video
-        all_preds = np.stack(all_preds, axis=0)
-        # all_preds_depth = np.stack(all_preds_depth, axis=0)
-        imageio.mimwrite(os.path.join(save_path, f'{self.opt.task_id}.mp4'), all_preds, fps=25, quality=8, macro_block_size=1, ffmpeg_params=['-threads', '4'])
-        # imageio.mimwrite(os.path.join(save_path, f'{name}_depth.mp4'), all_preds_depth, fps=25, quality=8, macro_block_size=1)
-
+        
         self.log(f"==> Finished Test.")
-    
+
+        concat_list_path = os.path.join(save_path, "concat_list.txt")
+        with open(concat_list_path, "w") as f:
+            for video in temp_videos:
+                f.write(f"file '{video}'\n")
+        
+        concat_video = os.path.abspath(os.path.join(save_path, 'temp_all.mp4'))
+        result = subprocess.run([
+            "ffmpeg", "-f", "concat", "-safe", "0", "-i", concat_list_path,
+            "-c", "copy", concat_video, "-y", "-threads", "4"
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if result.returncode == 0:
+            self.log(f"==> Finish concating video and saved to {concat_video}")
+        else:
+            error_msg = f"An error occurred while concatenating videos:\n result.stderr: {result.stderr}\n result.stdout:{result.stdout}"
+            raise RuntimeError(error_msg)
+
     # [GUI] just train for 16 steps, without any other overhead that may slow down rendering.
     def train_gui(self, train_loader, step=16):
 

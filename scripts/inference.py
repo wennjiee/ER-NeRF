@@ -15,6 +15,7 @@ from multiprocessing import shared_memory
 from data_utils.hubert_processor import HubertProcessor
 from main import main
 import contextlib
+import shutil
 
 inferring_processes: Dict[str, str] = {}
 
@@ -174,12 +175,11 @@ def start_inference(task_id, digitalHumanName, testAudioName, inference_part, pu
         status_queue.put((task_id, "failed"))
         return
 
-    if publicId == None:
-        output_video = os.path.join(f'./trial/{digitalHumanName}_{inference_part}/results/{task_id}.mp4')
-        # result_paths = sorted(glob.glob(os.path.join(f'./trial/{digitalHumanName}_{inference_part}/results/', '*.mp4')))
+    if publicId == None or publicId == '':
+        output_dir = f'./trial/{digitalHumanName}_{inference_part}/results/{task_id}'
     else:
-        output_video = os.path.join(f'./_public_data/{public_value}/trial/{inference_part}/results/{task_id}.mp4')
-        # result_paths = sorted(glob.glob(os.path.join(f'./_public_data/{public_value}/trial/{inference_part}/results/', '*.mp4')))
+        output_dir = f'./_public_data/{public_value}/trial/{inference_part}/results/{task_id}'
+    output_video = os.path.join(output_dir, f'temp_all.mp4')
     
     try:
         video_add_audio(output_video, test_audio, './inference/video_outputs', digitalHumanName, testAudioName, infer_file_path)
@@ -191,21 +191,22 @@ def start_inference(task_id, digitalHumanName, testAudioName, inference_part, pu
         logger.info('[---------------Failed to add audio into video---------------]')
         status_queue.put((task_id, "failed"))
     finally:
-        safe_delete(output_video, logger)
+        safe_delete(output_dir, logger)
         close_logger(logger)
 
-def safe_delete(file_path, logger):
-    if os.path.exists(file_path):
+def safe_delete(dir_path, logger):
+    if os.path.exists(dir_path):
         try:
-            os.chmod(file_path, 0o777)
-            os.remove(file_path)
-            logger.info(f"File {file_path} has been safely deleted.\n")
+            os.chmod(dir_path, 0o777)
+            # os.remove(file_path)
+            shutil.rmtree(dir_path)
+            logger.info(f"Dir {dir_path} has been safely deleted.\n")
         except PermissionError:
-            logger.error(f"Permission error: cannot delete {file_path}. Check your file permissions.\n")
+            logger.error(f"Permission error: cannot delete {dir_path}. Check your Dir permissions.\n")
         except Exception as e:
-            logger.error(f"An error occurred while deleting the file: {e}\n")
+            logger.error(f"An error occurred while deleting the Dir: {e}\n")
     else:
-        logger.error(f"The file {file_path} does not exist.\n")
+        logger.error(f"The Dir {dir_path} does not exist.\n")
 
 def get_infer_progress(digitalHumanName, testAudioName, inference_part):
     
