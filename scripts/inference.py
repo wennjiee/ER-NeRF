@@ -17,6 +17,24 @@ from main import main
 import contextlib
 import shutil
 
+import time
+import uuid
+import threading
+import queue
+import multiprocessing
+
+MAX_WORKERS = 2
+TOTAL_CPU_CORES = 8
+tasks = {}  # 统一维护任务状态和进程对象
+task_queue = queue.Queue()
+task_lock = threading.Lock()
+status_update_queue = multiprocessing.Queue()
+
+import time
+import threading
+import psutil
+from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetMemoryInfo, nvmlShutdown
+
 inferring_processes: Dict[str, str] = {}
 
 def setup_logger(id: int, infer_file_path: str) -> logging.Logger:
@@ -116,6 +134,8 @@ def start_inference(task_id, digitalHumanName, testAudioName, inference_part, pu
         test_audio = f'./inference/audio_inputs/{testAudioName}.wav'
         logger.info('Start audio processing')
         hubert_processor = HubertProcessor()
+        # 模拟unkown error ocurred
+        # os._exit(1) 
         hubert_processor.process_audio(test_audio, logger)
         end_time = datetime.now()
         elapsed_time = (end_time - start_time).total_seconds()
@@ -227,24 +247,6 @@ def get_infer_progress(digitalHumanName, testAudioName, inference_part):
     
     return shared_total, shared_step
 
-import time
-import uuid
-import threading
-import queue
-import multiprocessing
-
-MAX_WORKERS = 2
-TOTAL_CPU_CORES = 8
-tasks = {}  # 统一维护任务状态和进程对象
-task_queue = queue.Queue()
-task_lock = threading.Lock()
-status_update_queue = multiprocessing.Queue()
-
-import time
-import threading
-import psutil
-from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetMemoryInfo, nvmlShutdown
-
 def init_system():
     nvmlInit()
     print("GPU初始化完毕 Starting the system...")
@@ -327,7 +329,7 @@ def process_consumer():
                         del tasks[task_id]
                         gc.collect()
                         print(f"🗑️ 任务 {task_id} 已从任务列表中删除。")
- 
+                        
         # 控制最大并发任务数
         with task_lock:
             print('tasks = ', tasks)
