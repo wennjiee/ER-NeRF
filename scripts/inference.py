@@ -6,13 +6,13 @@ import gc
 import uuid
 import torch
 import struct
-import logging
 import subprocess
 from typing import Dict
 from ffmpy import FFmpeg
 from datetime import datetime
 from multiprocessing import shared_memory
 from data_utils.hubert_processor import HubertProcessor
+from scripts.logger_utils import setup_logger, close_logger, log_status, get_system_logger
 from main import main
 import contextlib
 import shutil
@@ -25,10 +25,12 @@ import multiprocessing
 
 MAX_WORKERS = 2
 TOTAL_CPU_CORES = 8
+MAX_GPU_NUMS = 3
 tasks = {}  # 统一维护任务状态和进程对象
-task_queue = queue.Queue()
+task_queue = queue.Queue() # process_consumer消费者线程读取的任务队列
 task_lock = threading.Lock()
-status_update_queue = multiprocessing.Queue()
+status_update_queue = multiprocessing.Queue() # 主进程与子进程进行通信的任务状态队列
+system_logger = None
 
 import time
 import threading
@@ -37,28 +39,15 @@ from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetMemoryInfo
 
 inferring_processes: Dict[str, str] = {}
 
-def setup_logger(id: int, infer_file_path: str) -> logging.Logger:
-    logger = logging.getLogger(f"infer_{id}")
-    logger.setLevel(logging.INFO)
-    if not logger.hasHandlers():
-        file_handler = logging.FileHandler(infer_file_path, mode="a", encoding="utf-8")
-        formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-    return logger
-
-def close_logger(logger: logging.Logger):
-    for handler in logger.handlers:
-        handler.close()
-        logger.removeHandler(handler)
-
-def log_status(res_file_path, status):
-    log_dir = os.path.dirname(res_file_path)
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with open(res_file_path, "a") as log_file:
-        log_file.write(f"{timestamp}|!{status}")
+def init_system():
+    global system_logger
+    system_logger = get_system_logger("./_debug/nerf_system.log")
+    system_logger.info("------------系统初始化--------------")
+    nvmlInit()
+    system_logger.info("GPU初始化完毕 Starting the system...")
+    queue_thread = threading.Thread(target=process_consumer, daemon=True)
+    queue_thread.start()
+    system_logger.info("系统初始化完毕 Starting the system...")
 
 def terminate_infer(digitalHumanName: str):
     res_log_dir = './_debug/res/'
@@ -110,9 +99,12 @@ def video_add_audio(video_path: str, audio_path: str, output_dir: str, digitalHu
     # ff.run()
     return result
 
-# unknow error stopped
+# unknow OMP error detected
+# 进程入口函数
 def start_inference(task_id, digitalHumanName, testAudioName, inference_part, publicId, status_queue):
-    
+    torch.set_num_threads(4)
+    torch.set_num_interop_threads(4)
+
     shm = shared_memory.SharedMemory(create=True, size=2 * struct.calcsize('i'))
     shm_name = shm.name
     shm.buf[:4] = struct.pack('i', 100**2) # define total_step
@@ -133,9 +125,12 @@ def start_inference(task_id, digitalHumanName, testAudioName, inference_part, pu
         start_time = datetime.now()
         test_audio = f'./inference/audio_inputs/{testAudioName}.wav'
         logger.info('Start audio processing')
+        # os._exit(1) 
         hubert_processor = HubertProcessor()
         # 模拟unkown error ocurred
-        # os._exit(1) 
+        # import random
+        # flag_num = random.randint(0, 9)
+        # if flag_num % 2 == 0:
         hubert_processor.process_audio(test_audio, logger)
         end_time = datetime.now()
         elapsed_time = (end_time - start_time).total_seconds()
@@ -152,8 +147,6 @@ def start_inference(task_id, digitalHumanName, testAudioName, inference_part, pu
         "250221": "boyinnv"
     }
     if publicId == None or publicId == '':
-        cmd = f'python ./main.py ./data/{digitalHumanName}/ --workspace ./trial/{digitalHumanName}_{inference_part}/ \
-            -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name} --task_id {task_id}'
         command = [
             f"./data/{digitalHumanName}/",
             "--workspace", f"./trial/{digitalHumanName}_{inference_part}/",
@@ -166,8 +159,6 @@ def start_inference(task_id, digitalHumanName, testAudioName, inference_part, pu
         ]
     elif publicId in PUBLILC_ID_DIC:
         public_value = PUBLILC_ID_DIC[publicId]
-        cmd = f'python ./main.py ./_public_data/{public_value}/datasets --workspace ./_public_data/{public_value}/trial/{inference_part}/ \
-            -O --test --test_train --aud ./inference/audio_inputs/{testAudioName}_hu.npy --shm_name {shm_name} --task_id {task_id}'
         command = [
             f"./_public_data/{public_value}/datasets",
             "--workspace", f"./_public_data/{public_value}/trial/{inference_part}/",
@@ -247,13 +238,6 @@ def get_infer_progress(digitalHumanName, testAudioName, inference_part):
     
     return shared_total, shared_step
 
-def init_system():
-    nvmlInit()
-    print("GPU初始化完毕 Starting the system...")
-    queue_thread = threading.Thread(target=process_consumer, daemon=True)
-    queue_thread.start()
-    print("系统初始化完毕 Starting the system...")
-
 def get_gpu_usage():
     try:
         gpu_handle = nvmlDeviceGetHandleByIndex(0)
@@ -322,17 +306,18 @@ def process_consumer():
                     if status in ["completed", "failed", "terminated"]:
                         if process:
                             if process.is_alive():
-                                print(f"⚠️ 任务 {task_id} 仍在运行，强制终止...")
+                                system_logger.info(f"⚠️ 任务 {task_id} 状态 {status}，强制终止...")
                                 process.terminate()
                                 process.join()
-                            print(f"✅ 任务 {task_id} 的进程已正常退出 (exitcode={process.exitcode}).")
-                        del tasks[task_id]
+                            system_logger.info(f"✅ 任务 {task_id} 的进程已正常退出 (exitcode={process.exitcode}).")
+                        # del tasks[task_id]
                         gc.collect()
-                        print(f"🗑️ 任务 {task_id} 已从任务列表中删除。")
+                        system_logger.info(f"🗑️ 任务 {task_id} 已从任务列表中删除。")
                         
         # 控制最大并发任务数
         with task_lock:
-            print('tasks = ', tasks)
+            check_crash()
+            # print('tasks = ', tasks)
             print('pid = ', psutil.Process().pid)
             gpu_free = get_gpu_usage()
             cpu_usage, total_memory  = get_process_usage()
@@ -359,22 +344,52 @@ def process_consumer():
             continue  # 没有任务时继续等待
 
         with task_lock:
-            tasks[task_id] = {"status": "running", "process": None}
+            
             # 创建进程执行任务，并传入 `status_update_queue`
             p = multiprocessing.Process(target=start_inference, \
                                         args=(task_id, digitalHumanName, testAudioName, inference_part, publicId, status_update_queue))
+            p.start()
             tasks[task_id]["process"] = p
+            tasks[task_id]["status"] = "running"  
             print(f"Processing task {task_id}")
-            print('🟢 Updated tasks = ', tasks)
-        p.start()
+
+def check_crash():
+    # 检查异常status
+    print('tasks = ', tasks)
+    for task_id, task_info in tasks.items():
+        process = task_info['process']
+        apply_id = task_info['apply_id']
+        if task_info['status'] == 'running' and not process.is_alive():
+            res_log_dir = './_debug/res/'
+            os.makedirs(res_log_dir, mode=0o777, exist_ok=True)
+            result_log_path = os.path.join(res_log_dir, 'result.txt')
+
+            infer_log_dir = './_debug/logs/'
+            os.makedirs(infer_log_dir, mode=0o777, exist_ok=True)
+            infer_file_path = os.path.join(infer_log_dir, 'test.txt')
+            logger = setup_logger(apply_id, infer_file_path)
+            
+            exitcode = process.exitcode
+            if exitcode == 0:
+                task_info['status'] = 'completed'
+                system_logger.info(f"Task {task_id} completed successfully.")
+            else:
+                task_info['status'] = 'failed'
+                log_status(result_log_path, f"fail\n")
+                system_logger.error(f"Task {task_id} crashed with exitcode {exitcode}.")
+                logger.error(f"Task {task_id} crashed with exitcode {exitcode}.")
 
 def submit_task(digitalHumanName, testAudioName, inference_part, publicId):
     task_id = str(uuid.uuid4())
     with task_lock:
-        tasks[task_id] = {"status": "waiting", 
+        tasks[task_id] = {"apply_id": digitalHumanName, 
+                          "status": "waiting", 
                           "process": None}  # 任务初始化
-        print(f"🟢 Added task {task_id}, current tasks: {tasks}")
         task_queue.put((task_id, digitalHumanName, testAudioName, inference_part, publicId))
+        system_logger.info(f"Added task, apply_id: {digitalHumanName}, public_id: {publicId}, task_id: {task_id}")
+        system_logger.info("Current tasks status:")
+        for task_id, info in tasks.items():
+            system_logger.info(f"  - Task ID: {task_id}, applyId: {info['apply_id']}, Status: {info['status']}, PID: {info['process'].pid if info['process'] else 'None'}")
     return {"task_id": task_id, "status": "waiting"}
 
 def terminate_task(task_id):
