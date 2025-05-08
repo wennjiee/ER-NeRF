@@ -73,15 +73,17 @@ class HubertProcessor:
         return tensor
     
     def process_audio(self, wav_path, logger):
-        
-        speech, sr = sf.read(wav_path)
-
-        speech_16k = librosa.resample(speech, orig_sr=sr, target_sr=16000)  
         logger.info(f"Processing {wav_path}...")
 
-        hubert_hidden = self.get_hubert_from_16k_speech(speech_16k)
+        speech, sr = sf.read(wav_path)
+        if speech.ndim == 2:
+            speech = speech.mean(axis=1)
+        speech_16k = librosa.resample(speech, orig_sr=sr, target_sr=16000)  
 
+        hubert_hidden = self.get_hubert_from_16k_speech(speech_16k)
         hubert_hidden = self.make_even_first_dim(hubert_hidden).reshape(-1, 2, 1024)
+
         np.save(wav_path.replace('.wav', '_hu.npy'), hubert_hidden.detach().numpy())
+
         logger.info(f"Saved features to {wav_path.replace('.wav', '_hu.npy')}")
         logger.info(hubert_hidden.detach().numpy().shape)
